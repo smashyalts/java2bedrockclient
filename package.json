@@ -1,0 +1,12 @@
+{
+  "name": "geyser-converter",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --filter @geyser-converter/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm --filter @geyser-converter/core test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@11.10.0"
+}
