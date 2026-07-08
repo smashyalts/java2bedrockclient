@@ -104,6 +104,25 @@ export function buildGeometry(
     cubes.push(cube);
   }
 
+  // Visible bounds from actual extents — undersized bounds make large models
+  // (greatswords, backpacks) pop out of view at screen edges.
+  let maxHorizontal = 16;
+  let minY = 0;
+  let maxY = 16;
+  for (const cube of cubes) {
+    maxHorizontal = Math.max(
+      maxHorizontal,
+      Math.abs(cube.origin[0]),
+      Math.abs(cube.origin[0] + cube.size[0]),
+      Math.abs(cube.origin[2]),
+      Math.abs(cube.origin[2] + cube.size[2]),
+    );
+    minY = Math.min(minY, cube.origin[1]);
+    maxY = Math.max(maxY, cube.origin[1] + cube.size[1]);
+  }
+  const boundsWidth = Math.max(4, Math.ceil((maxHorizontal * 2) / 16) + 1);
+  const boundsHeight = Math.max(4.5, Math.ceil((maxY - minY) / 16) + 1.5);
+
   const geometry = {
     format_version: usedUvRotation ? "1.21.0" : "1.16.0",
     "minecraft:geometry": [
@@ -112,9 +131,9 @@ export function buildGeometry(
           identifier,
           texture_width: atlasSize.width,
           texture_height: atlasSize.height,
-          visible_bounds_width: 4,
-          visible_bounds_height: 4.5,
-          visible_bounds_offset: [0, 0.75, 0],
+          visible_bounds_width: boundsWidth,
+          visible_bounds_height: boundsHeight,
+          visible_bounds_offset: [0, (minY + maxY) / 32, 0],
         },
         bones: [
           {

@@ -37,8 +37,10 @@ export const langStage: PipelineStage = {
     for (const [code, entries] of locales) {
       const lines: string[] = [];
       for (const [key, value] of entries) {
-        // .lang format: key=value, newlines escaped, '#' comments — escape '=' is not needed in keys (vanilla keys have none).
-        lines.push(`${key}=${value.replace(/\r?\n/g, "%1")}`);
+        // Java positional args (%1$s / %2$d) → Bedrock's %1 / %2 syntax;
+        // .lang format: key=value, newlines escaped.
+        const converted = value.replace(/%(\d+)\$[sd]/g, "%$1").replace(/\r?\n/g, "%1");
+        lines.push(`${key}=${converted}`);
       }
       ctx.bedrock.writeText(`texts/${code}.lang`, lines.join("\n") + "\n");
     }

@@ -22,14 +22,16 @@ const namespaces = [...new Set(vfs.list({ prefix: "assets/" }).map((p) => p.spli
 console.log("namespaces:", namespaces.join(", "));
 
 let baseItemHints: Record<string, string> | undefined;
+let displayNameHints: Record<string, string> | undefined;
 if (configZipPath) {
   const hints = parseOraxenConfigZip(new Uint8Array(fs.readFileSync(configZipPath)));
   console.log(`oraxen hints: ${hints.items} item(s) from ${hints.files} yml file(s)`);
   baseItemHints = hints.baseItems;
+  displayNameHints = hints.displayNames;
 }
 
 const packName = path.basename(input).replace(/\.(zip|mcpack)$/i, "");
-const result = await convertPack(bytes, { packName, baseItemHints });
+const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints });
 fs.mkdirSync(outdir, { recursive: true });
 fs.writeFileSync(path.join(outdir, packName + ".mcpack"), result.mcpack);
 if (result.geyserMappings) {

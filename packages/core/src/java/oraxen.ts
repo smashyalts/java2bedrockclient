@@ -27,6 +27,8 @@ import { readZipDetailed } from "../io/zip.js";
 export interface OraxenHints {
   /** item key (e.g. "ruby_sword") → java item id (e.g. "minecraft:diamond_sword"). */
   baseItems: Record<string, string>;
+  /** item key → display name from the config (colour codes stripped). */
+  displayNames: Record<string, string>;
   /** yml files parsed / items discovered, for reporting. */
   files: number;
   items: number;
@@ -34,7 +36,7 @@ export interface OraxenHints {
 
 export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
   const { vfs } = readZipDetailed(zipBytes);
-  const hints: OraxenHints = { baseItems: {}, files: 0, items: 0 };
+  const hints: OraxenHints = { baseItems: {}, displayNames: {}, files: 0, items: 0 };
 
   for (const path of vfs.list({ suffix: ".yml" })) {
     const text = vfs.readText(path);
@@ -53,12 +55,16 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
       const material = extractMaterial(value);
       if (material === undefined) return;
       const base = `minecraft:${material.toLowerCase()}`;
-      hints.baseItems[key.toLowerCase()] = base;
+      const lowerKey = key.toLowerCase();
+      hints.baseItems[lowerKey] = base;
+      const displayName = extractDisplayName(value);
+      if (displayName !== undefined) hints.displayNames[lowerKey] = displayName;
       found++;
       // Model-id overrides (Oraxen Components.item_model / Pack.model,
       // ItemsAdder resource.model_path) — register those names too.
       for (const alias of extractModelAliases(value)) {
         hints.baseItems[alias] = base;
+        if (displayName !== undefined) hints.displayNames[alias] = displayName;
       }
     };
 
@@ -131,4 +137,17 @@ function extractModelAliases(item: unknown): string[] {
 function stripNamespace(id: string): string {
   const idx = id.indexOf(":");
   return (idx === -1 ? id : id.slice(idx + 1)).toLowerCase();
+}
+
+/** Oraxen `displayname` / ItemsAdder `display_name`, colour codes stripped. */
+function extractDisplayName(item: unknown): string | undefined {
+  if (item === null || typeof item !== "object") return undefined;
+  const obj = item as Record<string, unknown>;
+  const raw = obj["displayname"] ?? obj["display_name"] ?? obj["itemname"];
+  if (typeof raw !== "string") return undefined;
+  const stripped = raw
+    .replace(/[§&][0-9a-fk-orx]/gi, "") // legacy colour codes
+    .replace(/<[^<>]+>/g, "") // MiniMessage tags
+    .trim();
+  return stripped.length > 0 ? stripped : undefined;
 }

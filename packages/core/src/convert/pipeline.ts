@@ -60,6 +60,7 @@ export async function convertPack(
     namespaces: options?.namespaces ?? DEFAULT_OPTIONS.namespaces,
     modernBaseItem: options?.modernBaseItem ?? DEFAULT_OPTIONS.modernBaseItem,
     baseItemHints: options?.baseItemHints ?? DEFAULT_OPTIONS.baseItemHints,
+    displayNameHints: options?.displayNameHints ?? DEFAULT_OPTIONS.displayNameHints,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
   };
 

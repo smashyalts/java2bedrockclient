@@ -34,8 +34,15 @@ const MECHANIC_BLOCKS = [
   "sugar_cane",
 ];
 
+interface BlockstateVariant {
+  model: string;
+  /** Clockwise rotations in degrees (multiples of 90). */
+  x?: number;
+  y?: number;
+}
+
 interface BlockstateFile {
-  variants?: Record<string, { model: string } | { model: string }[]>;
+  variants?: Record<string, BlockstateVariant | BlockstateVariant[]>;
   multipart?: unknown[];
 }
 
@@ -87,6 +94,13 @@ function convertBlockstates(
       ctx.report.skipped("blocks", `${path} [${stateKey}]`, `model ${variant.model} has no usable elements/textures`);
       continue;
     }
+    // Blockstate x/y rotations (directional blocks/furniture). Java rotates
+    // clockwise; Bedrock transformations rotate counter-clockwise.
+    const rx = normalizeAngle(-(variant.x ?? 0));
+    const ry = normalizeAngle(-(variant.y ?? 0));
+    if (rx !== 0 || ry !== 0) {
+      (def as Record<string, unknown>)["transformation"] = { rotation: [rx, ry, 0] };
+    }
     overrides[normalizeStateKey(stateKey)] = def;
     base ??= { name: def.name ?? safeName(variant.model), ...def };
     converted++;
@@ -105,6 +119,14 @@ function convertBlockstates(
 /** Blockstate keys keep Java's prop=value,prop=value format; "" = default state. */
 function normalizeStateKey(key: string): string {
   return key.trim();
+}
+
+/** Wrap an angle into (-180, 180] in 90° steps. */
+function normalizeAngle(deg: number): number {
+  let a = deg % 360;
+  if (a > 180) a -= 360;
+  if (a <= -180) a += 360;
+  return a;
 }
 
 const FULL_CUBE_FACES: JavaFaceName[] = ["up", "down", "north", "south", "east", "west"];

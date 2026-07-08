@@ -80,8 +80,23 @@ function convertVariant(ctx: ConversionContext, variant: ItemVariant): void {
   }
 }
 
+/** Vanilla items whose layer0 gets a server-side colour tint Java applies at render time. */
+const TINTED_BASE_ITEMS = new Set([
+  "minecraft:leather_helmet", "minecraft:leather_chestplate", "minecraft:leather_leggings",
+  "minecraft:leather_boots", "minecraft:leather_horse_armor", "minecraft:potion",
+  "minecraft:splash_potion", "minecraft:lingering_potion", "minecraft:tipped_arrow",
+  "minecraft:filled_map", "minecraft:firework_star",
+]);
+
 function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, resolved: ResolvedModel): void {
   const origin = `${variant.origin} → ${variant.model}`;
+  if (variant.baseItem !== undefined && TINTED_BASE_ITEMS.has(variant.baseItem)) {
+    ctx.report.approximated(
+      "items",
+      origin,
+      `${variant.baseItem} tints layer0 server-side on Java — the tint cannot be applied statically, icon may look uncoloured`,
+    );
+  }
   const layers = spriteLayers(resolved);
   if (layers.length === 0) {
     ctx.report.skipped("items", origin, "sprite model has no layer textures");
@@ -138,10 +153,18 @@ export function buildDefinition(
   bedrock: { icon: string; displayHandheld: boolean; protectionValue?: number },
 ): GeyserItemDefinition {
   const name = safeName(variant.model);
+  // Prefer the real display name from plugin configs over a filename guess.
+  const nameKeys = [
+    ...(variant.source.kind === "modern"
+      ? [parseResourceLocation(variant.source.itemModelId).path.toLowerCase()]
+      : []),
+    parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase(),
+  ];
+  const hintedName = nameKeys.map((k) => ctx.options.displayNameHints[k]).find((v) => v !== undefined);
   const definition: GeyserItemDefinition = {
     type: variant.source.kind === "legacy" ? "legacy" : "definition",
     bedrock_identifier: `geyser_custom:${name}`,
-    display_name: prettyName(variant.model),
+    display_name: hintedName ?? prettyName(variant.model),
     bedrock_options: {
       icon: bedrock.icon,
       display_handheld: bedrock.displayHandheld,

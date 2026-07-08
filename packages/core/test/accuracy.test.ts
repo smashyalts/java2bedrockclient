@@ -132,6 +132,86 @@ describe("accuracy improvements", () => {
     expect(byModel["geyser_custom:custom_item_gauge_empty"]).toBe(0);
   });
 
+  it("sizes visible bounds to the model extents", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/stick.json": JSON.stringify({
+        parent: "minecraft:item/handheld",
+        textures: { layer0: "minecraft:item/stick" },
+        overrides: [{ predicate: { custom_model_data: 1 }, model: "custom:item/greatsword" }],
+      }),
+      "assets/custom/models/item/greatsword.json": JSON.stringify({
+        textures: { a: "custom:item/blade" },
+        elements: [
+          {
+            from: [-16, -8, 7],
+            to: [32, 40, 9],
+            faces: { north: { uv: [0, 0, 16, 16], texture: "#a" } },
+          },
+        ],
+      }),
+      "assets/custom/textures/item/blade.png": png(),
+    });
+    const out = readZip((await convertPack(zip, { packName: "Big" })).mcpack);
+    const geo = JSON.parse(out.readText("models/entity/geyser_custom/custom_item_greatsword.geo.json")!);
+    const desc = geo["minecraft:geometry"][0].description;
+    // x spans [8-32, 8+16] = [-24, 24] → width ≥ 4 blocks; default 4 would clip.
+    expect(desc.visible_bounds_width).toBeGreaterThanOrEqual(4);
+    expect(desc.visible_bounds_height).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("converts blockstate x/y rotations to block transformations", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/blockstates/note_block.json": JSON.stringify({
+        variants: {
+          "instrument=hat,note=0,powered=false": { model: "oraxen:block/chair", y: 90 },
+        },
+      }),
+      "assets/oraxen/models/block/chair.json": JSON.stringify({
+        parent: "minecraft:block/cube_all",
+        textures: { all: "oraxen:block/chair" },
+      }),
+      "assets/oraxen/textures/block/chair.png": png(),
+    });
+    const result = await convertPack(zip, { packName: "Rot" });
+    const blocks = JSON.parse(result.geyserBlockMappings!);
+    const override = blocks.blocks["minecraft:note_block"].state_overrides["instrument=hat,note=0,powered=false"];
+    expect(override.transformation).toEqual({ rotation: [0, -90, 0] });
+  });
+
+  it("converts Java positional lang args to Bedrock syntax", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/custom/lang/en_us.json": JSON.stringify({
+        "msg.greet": "Hello %1$s, you have %2$d coins",
+      }),
+    });
+    const out = readZip((await convertPack(zip, { packName: "Lang2" })).mcpack);
+    expect(out.readText("texts/en_US.lang")).toContain("msg.greet=Hello %1, you have %2 coins");
+  });
+
+  it("uses config display names over filename guesses", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/oraxen/items/ruby_sword.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "oraxen:item/ruby_sword" },
+      }),
+      "assets/oraxen/models/item/ruby_sword.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "oraxen:item/ruby_sword" },
+      }),
+      "assets/oraxen/textures/item/ruby_sword.png": png(),
+    });
+    const result = await convertPack(zip, {
+      packName: "Names",
+      baseItemHints: { ruby_sword: "minecraft:diamond_sword" },
+      displayNameHints: { ruby_sword: "The Crimson Blade" },
+    });
+    const defs = JSON.parse(result.geyserMappings!).items["minecraft:diamond_sword"];
+    expect(defs[0].display_name).toBe("The Crimson Blade");
+  });
+
   it("flags sound events referencing files missing from the pack", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

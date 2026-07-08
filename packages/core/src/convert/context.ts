@@ -20,6 +20,8 @@ export interface ConvertOptions {
    * names without namespace.
    */
   baseItemHints: Record<string, string>;
+  /** Item-model name → display name from plugin configs (colour codes stripped). */
+  displayNameHints: Record<string, string>;
   /**
    * Max flipbook timeline frames per animated item; 0 = unlimited (full
    * animation, default). Lower values shrink the pack for slow connections.
@@ -32,6 +34,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   namespaces: [],
   modernBaseItem: "minecraft:paper",
   baseItemHints: {},
+  displayNameHints: {},
   maxAnimationFrames: 0,
 };
 
