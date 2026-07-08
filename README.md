@@ -1,5 +1,7 @@
 # GeyserConverter
 
+This was made almost entirely with claude fable 5, if you dont want to use a ai generated tool, refrain from further use
+
 Java Edition → Bedrock Edition resource pack converter with a web UI. Upload a Java `.zip` pack in your browser and get back:
 
 - **`<pack>.mcpack`** — a Bedrock resource pack
