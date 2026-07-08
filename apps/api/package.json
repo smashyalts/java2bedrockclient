@@ -1,0 +1,22 @@
+{
+  "name": "@geyser-converter/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@geyser-converter/core": "workspace:*",
+    "busboy": "^1.6.0",
+    "fflate": "^0.8.3",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

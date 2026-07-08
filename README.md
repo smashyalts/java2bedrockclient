@@ -39,6 +39,29 @@ pnpm build      # production build (apps/web/dist — deployable to any static h
 
 Server setup: drop the `.mcpack` into Geyser's `packs/` folder and `geyser_mappings.json` into `custom_mappings/`, then restart.
 
+## HTTP API (self-hosted, no GUI)
+
+The same engine is available as a small HTTP server for automation:
+
+```bash
+pnpm --filter @geyser-converter/api start   # PORT=3000 by default
+```
+
+```bash
+# multipart: pack + optional plugin config zip
+curl -X POST "http://localhost:3000/convert?packName=mypack" \
+  -F "pack=@MyJavaPack.zip" \
+  -F "config=@oraxen-items.zip" \
+  -o mypack_bedrock.zip
+
+# or raw body
+curl -X POST "http://localhost:3000/convert?packName=mypack" \
+  --data-binary @MyJavaPack.zip -H "Content-Type: application/zip" \
+  -o mypack_bedrock.zip
+```
+
+Response is a zip containing `<packName>.mcpack`, `geyser_mappings.json`, `geyser_blocks.json`, and `report.json`. Query params: `packName`, `attachableMaterial`, `modernBaseItem`, `maxAnimationFrames`. Env: `PORT`, `MAX_UPLOAD_BYTES`. Note: the hosted GitHub Pages site is browser-only — the API must be run on your own machine/server.
+
 ## Repo layout
 
 - `packages/core` — conversion engine (environment-agnostic TypeScript; usable from Node or browser)
