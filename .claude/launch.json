@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@geyser-converter/web", "dev", "--port", "5173"],
+      "port": 5173
+    }
+  ]
+}

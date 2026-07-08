@@ -1,0 +1,91 @@
+import { describe, expect, it } from "vitest";
+import { zipSync } from "fflate";
+import { convertPack, parseOraxenConfigZip } from "../src/index.js";
+import { encode } from "fast-png";
+
+function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
+  const tree: Record<string, Uint8Array> = {};
+  for (const [path, content] of Object.entries(files)) {
+    tree[path] = typeof content === "string" ? new TextEncoder().encode(content) : content;
+  }
+  return zipSync(tree);
+}
+
+function png(): Uint8Array {
+  const data = new Uint8Array(16 * 16 * 4).fill(99);
+  return new Uint8Array(encode({ width: 16, height: 16, data, channels: 4 }));
+}
+
+const ORAXEN_YML = `
+ruby_sword:
+  displayname: "&cRuby Sword"
+  material: DIAMOND_SWORD
+  Pack:
+    generate_model: true
+    parent_model: item/handheld
+abyss_boots:
+  displayname: "Abyss Boots"
+  material: LEATHER_BOOTS
+  Components:
+    item_model: oraxen:abyss_boots_model
+not_an_item:
+  some_setting: true
+`;
+
+describe("oraxen config hints", () => {
+  it("parses item base materials from yml configs", () => {
+    const zip = fixtureZip({ "items/weapons.yml": ORAXEN_YML });
+    const hints = parseOraxenConfigZip(zip);
+    expect(hints.baseItems["ruby_sword"]).toBe("minecraft:diamond_sword");
+    expect(hints.baseItems["abyss_boots"]).toBe("minecraft:leather_boots");
+    // Components.item_model alias registered too.
+    expect(hints.baseItems["abyss_boots_model"]).toBe("minecraft:leather_boots");
+    expect(hints.baseItems["not_an_item"]).toBeUndefined();
+    expect(hints.items).toBe(2);
+  });
+
+  it("parses ItemsAdder configs (items section, resource.material, model_path)", () => {
+    const IA_YML = `
+info:
+  namespace: myitems
+items:
+  ruby_sword:
+    display_name: display-name-ruby_sword
+    resource:
+      material: DIAMOND_SWORD
+      generate: true
+      textures:
+        - item/ruby_sword.png
+  magic_dust:
+    resource:
+      generate: true
+      model_path: item/magic_dust_model
+`;
+    const hints = parseOraxenConfigZip(fixtureZip({ "contents/myitems/configs/items.yml": IA_YML }));
+    expect(hints.baseItems["ruby_sword"]).toBe("minecraft:diamond_sword");
+    // generated item without material → ItemsAdder default PAPER
+    expect(hints.baseItems["magic_dust"]).toBe("minecraft:paper");
+    // model_path alias
+    expect(hints.baseItems["magic_dust_model"]).toBe("minecraft:paper");
+    expect(hints.items).toBe(2);
+  });
+
+  it("maps modern item definitions under hinted base items", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/oraxen/items/ruby_sword.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "oraxen:item/ruby_sword" },
+      }),
+      "assets/oraxen/models/item/ruby_sword.json": JSON.stringify({
+        parent: "minecraft:item/handheld",
+        textures: { layer0: "oraxen:item/ruby_sword" },
+      }),
+      "assets/oraxen/textures/item/ruby_sword.png": png(),
+    });
+    const hints = parseOraxenConfigZip(fixtureZip({ "items/weapons.yml": ORAXEN_YML }));
+    const result = await convertPack(packZip, { packName: "Hints", baseItemHints: hints.baseItems });
+    const mappings = JSON.parse(result.geyserMappings!);
+    expect(mappings.items["minecraft:diamond_sword"]).toHaveLength(1);
+    expect(mappings.items["minecraft:paper"]).toBeUndefined();
+  });
+});

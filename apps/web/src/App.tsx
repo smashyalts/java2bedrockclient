@@ -16,6 +16,7 @@ export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [attachableMaterial, setAttachableMaterial] = useState("entity_alphatest_one_sided");
   const [modernBaseItem, setModernBaseItem] = useState("minecraft:paper");
+  const [maxAnimationFrames, setMaxAnimationFrames] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [configZip, setConfigZip] = useState<{ name: string; bytes: Uint8Array } | null>(null);
   const workerRef = useRef<Remote<WorkerApi> | null>(null);
@@ -39,7 +40,7 @@ export function App() {
         const api = getWorker();
         const result = await api.convert(
           bytes,
-          { packName, attachableMaterial, modernBaseItem },
+          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames },
           proxy((stage: string, done: number, total: number) => {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
@@ -50,7 +51,7 @@ export function App() {
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
-    [getWorker, attachableMaterial, modernBaseItem, configZip],
+    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, configZip],
   );
 
   return (
@@ -114,6 +115,20 @@ export function App() {
                     style={inputStyle}
                     placeholder="minecraft:paper"
                   />
+                </label>
+                <label style={labelStyle}>
+                  Animation quality (max flipbook frames) — lower = smaller pack, faster downloads
+                  <select
+                    value={maxAnimationFrames}
+                    onChange={(e) => setMaxAnimationFrames(Number(e.target.value))}
+                    style={inputStyle}
+                  >
+                    <option value={0}>Full animation (default)</option>
+                    <option value={20}>20 frames</option>
+                    <option value={10}>10 frames (balanced)</option>
+                    <option value={5}>5 frames (small pack)</option>
+                    <option value={1}>1 frame (no animation, smallest)</option>
+                  </select>
                 </label>
                 <label style={labelStyle}>
                   Oraxen / Nexo / ItemsAdder config zip (optional) — auto-detects each item's
