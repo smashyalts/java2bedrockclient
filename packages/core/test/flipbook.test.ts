@@ -84,6 +84,73 @@ describe("flipbook item animation", () => {
     expect(entry!.outputs!.some((o) => o.includes("animated: 4 frames"))).toBe(true);
   });
 
+  it("plays multi-strip items at correct per-texture speeds (no 2x bug)", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/stick.json": JSON.stringify({
+        parent: "minecraft:item/handheld",
+        textures: { layer0: "minecraft:item/stick" },
+        overrides: [{ predicate: { custom_model_data: 1 }, model: "custom:item/dual" }],
+      }),
+      "assets/custom/models/item/dual.json": JSON.stringify({
+        textures: { a: "custom:item/fast", b: "custom:item/slow" },
+        elements: [
+          {
+            from: [4, 0, 4],
+            to: [12, 16, 12],
+            faces: {
+              north: { uv: [0, 0, 16, 16], texture: "#a" },
+              south: { uv: [0, 0, 16, 16], texture: "#b" },
+            },
+          },
+        ],
+      }),
+      // fast: 2 frames @ 1 tick (cycle 2); slow: 2 frames @ 2 ticks (cycle 4)
+      "assets/custom/textures/item/fast.png": strip(2),
+      "assets/custom/textures/item/fast.png.mcmeta": JSON.stringify({ animation: { frametime: 1 } }),
+      "assets/custom/textures/item/slow.png": strip(2),
+      "assets/custom/textures/item/slow.png.mcmeta": JSON.stringify({ animation: { frametime: 2 } }),
+    });
+    const result = await convertPack(zip, { packName: "Dual" });
+    const out = readZip(result.mcpack);
+    const rc = JSON.parse(
+      out.readText("render_controllers/geyser_custom/custom_item_dual.render_controllers.json")!,
+    );
+    const controller = rc.render_controllers["controller.render.gc_custom_item_dual"];
+    // timeline = longest cycle (4 ticks) on 1-tick grid = 4 slots at 20 fps —
+    // NOT the fast texture's rate applied to everything.
+    expect(controller.arrays.textures["Array.frames"]).toHaveLength(4);
+    expect(controller.textures[0]).toContain("q.life_time * 20");
+  });
+
+  it("honours per-frame time values in mcmeta", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/stick.json": JSON.stringify({
+        parent: "minecraft:item/handheld",
+        textures: { layer0: "minecraft:item/stick" },
+        overrides: [{ predicate: { custom_model_data: 1 }, model: "custom:item/timed" }],
+      }),
+      "assets/custom/models/item/timed.json": JSON.stringify({
+        ...MODEL,
+        textures: { body: "custom:item/timed_body" },
+      }),
+      "assets/custom/textures/item/timed_body.png": strip(2),
+      // each frame lasts 2 ticks even though frametime defaults to 1
+      "assets/custom/textures/item/timed_body.png.mcmeta": JSON.stringify({
+        animation: { frames: [{ index: 0, time: 2 }, { index: 1, time: 2 }] },
+      }),
+    });
+    const result = await convertPack(zip, { packName: "Timed" });
+    const out = readZip(result.mcpack);
+    const rc = JSON.parse(
+      out.readText("render_controllers/geyser_custom/custom_item_timed.render_controllers.json")!,
+    );
+    const controller = rc.render_controllers["controller.render.gc_custom_item_timed"];
+    // 2 frames × 2 ticks = 4-tick cycle → 10 fps, not 20 (the 2x-speed bug).
+    expect(controller.textures[0]).toBe("Array.frames[math.mod(math.floor(q.life_time * 10), 2)]");
+  });
+
   it("keeps full animations by default (no cap)", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

@@ -45,7 +45,16 @@ interface McmetaAnimation {
   };
 }
 
-/** Load a texture, splitting mcmeta flipbook strips into ordered frames. */
+function gcd(a: number, b: number): number {
+  while (b !== 0) [a, b] = [b, a % b];
+  return a;
+}
+
+/**
+ * Load a texture, splitting mcmeta flipbook strips into ordered frames.
+ * Per-frame `time` values are honoured by expanding frames on a gcd tick
+ * grid, so a frame lasting 2× the base frametime appears twice.
+ */
 function loadTexture(ctx: ConversionContext, textureId: string): LoadedTexture | undefined {
   const path = ctx.java.assetPath("textures", textureId, ".png");
   const bytes = ctx.java.read(path);
@@ -68,13 +77,22 @@ function loadTexture(ctx: ConversionContext, textureId: string): LoadedTexture |
       data: image.data.slice(i * image.width * frameH * 4, (i + 1) * image.width * frameH * 4),
     });
   }
-  // Custom frame order (per-frame times collapse to the global frametime).
-  const order = meta.animation.frames?.map((f) => (typeof f === "number" ? f : f.index));
-  const frames =
-    order !== undefined && order.length > 0
-      ? order.map((i) => strip[Math.min(i, strip.length - 1)]!)
-      : strip;
-  return { frames, frametime: Math.max(1, meta.animation.frametime ?? 1) };
+
+  const baseTime = Math.max(1, meta.animation.frametime ?? 1);
+  const entries = (meta.animation.frames ?? strip.map((_, i) => i)).map((f) => {
+    if (typeof f === "number") return { index: f, ticks: baseTime };
+    return { index: f.index, ticks: Math.max(1, f.time ?? baseTime) };
+  });
+  if (entries.length === 0) return { frames: strip, frametime: baseTime };
+
+  // Uniform tick grid: gcd of all durations; repeat frames to their length.
+  const unit = entries.reduce((acc, e) => gcd(acc, e.ticks), entries[0]!.ticks);
+  const frames: RgbaImage[] = [];
+  for (const e of entries) {
+    const img = strip[Math.min(e.index, strip.length - 1)]!;
+    for (let r = 0; r < e.ticks / unit; r++) frames.push(img);
+  }
+  return { frames, frametime: unit };
 }
 
 /**
@@ -149,23 +167,31 @@ function convertModel(
   // 3. Flipbook timeline: Bedrock attachables have no native texture
   // animation, so we bake one atlas per timeline frame and cycle them with a
   // render controller (time-indexed texture array). Static models get one atlas.
+  // Tick-accurate timeline: textures may have different frametimes and frame
+  // counts (multi-strip items). The timeline runs on the gcd of all
+  // frametimes for the duration of the LONGEST cycle; each texture picks its
+  // frame by real time, so every strip plays at its own correct speed.
   const animated = [...loaded.values()].filter((t) => t.frames.length > 1);
-  const maxSourceFrames = Math.max(1, ...animated.map((t) => t.frames.length));
+  const unit = animated.length > 0 ? animated.map((t) => t.frametime).reduce(gcd) : 1;
+  const durationTicks = Math.max(1, ...animated.map((t) => t.frames.length * t.frametime));
+  const fullSlots = Math.ceil(durationTicks / unit);
   // 0 = unlimited: keep the full animation (default).
-  const frameCap = ctx.options.maxAnimationFrames > 0 ? ctx.options.maxAnimationFrames : maxSourceFrames;
-  const timelineFrames = Math.min(maxSourceFrames, frameCap);
-  const frametime = animated.length > 0 ? Math.min(...animated.map((t) => t.frametime)) : 1;
+  const frameCap = ctx.options.maxAnimationFrames > 0 ? ctx.options.maxAnimationFrames : fullSlots;
+  const timelineFrames = Math.min(fullSlots, frameCap);
+  const maxSourceFrames = fullSlots; // for the subsample report note
   // fps for the render controller; compensates when the timeline is subsampled.
-  const fps = (timelineFrames * 20) / (maxSourceFrames * frametime);
+  const fps = (timelineFrames * 20) / durationTicks;
 
   const framePaths: string[] = [];
   let atlas!: ReturnType<typeof buildAtlas>;
   for (let f = 0; f < timelineFrames; f++) {
-    const sourceIndex = Math.floor((f * maxSourceFrames) / timelineFrames);
+    // Real time (ticks) this timeline slot represents.
+    const ticks = (f * durationTicks) / timelineFrames;
     // Same insertion order every frame → identical atlas placements.
     const frameImages = new Map<string, RgbaImage>();
     for (const [id, tex] of loaded) {
-      frameImages.set(id, tex.frames[sourceIndex % tex.frames.length]!);
+      const idx = Math.floor(ticks / tex.frametime) % tex.frames.length;
+      frameImages.set(id, tex.frames[idx]!);
     }
     const frameAtlas = buildAtlas(frameImages);
     alphaBleed(frameAtlas.image);
