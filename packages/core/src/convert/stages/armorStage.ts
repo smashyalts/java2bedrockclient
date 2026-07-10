@@ -116,20 +116,32 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
 
   // Find item mapping definitions that look like pieces of this set.
   const material = parseResourceLocation(set.id).path.toLowerCase();
+  const namespace = parseResourceLocation(set.id).namespace.toLowerCase();
   let matchedAny = false;
 
   for (const piece of PIECES) {
     const layerKey = piece === "leggings" ? "layer2" : "layer1";
     const texture = texturePaths[layerKey];
     if (texture === undefined) continue;
+    const slot = ARMOR_SLOTS[piece];
 
-    // Match by identifier name, or — for renamed items (e.g. "solar_boots"
-    // whose art lives under "akiraset/") — by the textures their model used.
-    const matches = findDefinitions(ctx, (name, textures) => {
-      const materialHit = name.includes(material) || textures.some((t) => t.includes(material));
-      const pieceHit = name.includes(piece) || textures.some((t) => t.includes(piece));
-      return materialHit && pieceHit;
+    // 1. Deterministic: plugin-config equippable hints (asset_id + slot) —
+    //    survives obfuscated/renamed packs.
+    let matches = findDefinitions(ctx, (name) => {
+      const hint = ctx.options.equippableHints[name];
+      return hint !== undefined && hint.asset === material && hint.slot === slot;
     });
+    // 2. Heuristic: identifier name / model textures / set namespace tokens.
+    if (matches.length === 0) {
+      matches = findDefinitions(ctx, (name, textures) => {
+        const materialHit =
+          name.includes(material) ||
+          textures.some((t) => t.includes(material)) ||
+          (namespace !== "minecraft" && (name.includes(namespace) || textures.some((t) => t.includes(namespace))));
+        const pieceHit = name.includes(piece) || textures.some((t) => t.includes(piece));
+        return materialHit && pieceHit;
+      });
+    }
     if (matches.length === 0) {
       // Emit a standalone attachable so server-side item APIs can still use it.
       const identifier = `geyser_custom:${set.name}_${piece}`;
@@ -158,13 +170,22 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
   }
 
   if (texturePaths.wings !== undefined) {
-    const matches = findDefinitions(ctx, (name, textures) => {
-      const materialHit = name.includes(material) || textures.some((t) => t.includes(material));
-      const kindHit = ["elytra", "wings", "cape"].some(
-        (k) => name.includes(k) || textures.some((t) => t.includes(k)),
-      );
-      return materialHit && kindHit;
+    let matches = findDefinitions(ctx, (name) => {
+      const hint = ctx.options.equippableHints[name];
+      return hint !== undefined && hint.asset === material && hint.slot === "chest";
     });
+    if (matches.length === 0) {
+      matches = findDefinitions(ctx, (name, textures) => {
+        const materialHit =
+          name.includes(material) ||
+          textures.some((t) => t.includes(material)) ||
+          (namespace !== "minecraft" && name.includes(namespace));
+        const kindHit = ["elytra", "wings", "cape"].some(
+          (k) => name.includes(k) || textures.some((t) => t.includes(k)),
+        );
+        return materialHit && kindHit;
+      });
+    }
     if (matches.length === 0) {
       const identifier = `geyser_custom:${set.name}_elytra`;
       ctx.bedrock.writeJson(
@@ -200,8 +221,9 @@ function findDefinitions(
     for (const def of defs) {
       const id = def.bedrock_identifier;
       if (id === undefined) continue;
+      const name = id.toLowerCase().replace(/^geyser_custom:/, "");
       const textures = (ctx.definitionTextures.get(def) ?? []).map((t) => t.toLowerCase());
-      if (match(id.toLowerCase(), textures)) out.push(def);
+      if (match(name, textures)) out.push(def);
     }
   }
   return out;

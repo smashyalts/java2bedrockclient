@@ -22,6 +22,10 @@ export interface ConvertOptions {
   baseItemHints: Record<string, string>;
   /** Item-model name → display name from plugin configs (colour codes stripped). */
   displayNameHints: Record<string, string>;
+  /** Item-model name → equippable armor link from plugin configs. */
+  equippableHints: Record<string, { asset: string; slot: string }>;
+  /** "minecraft:material|cmd" → config item key (cmd-dispatched packs). */
+  cmdItemKeys: Record<string, string>;
   /**
    * Max flipbook timeline frames per animated item; 0 = unlimited (full
    * animation, default). Lower values shrink the pack for slow connections.
@@ -35,6 +39,8 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   modernBaseItem: "minecraft:paper",
   baseItemHints: {},
   displayNameHints: {},
+  equippableHints: {},
+  cmdItemKeys: {},
   maxAnimationFrames: 0,
 };
 
@@ -66,6 +72,8 @@ export interface ConversionContext {
    * texture paths when name matching fails.
    */
   definitionTextures: Map<GeyserItemDefinition, string[]>;
+  /** Bedrock identifiers already assigned (must be unique across definitions). */
+  usedBedrockIdentifiers: Set<string>;
 }
 
 export interface PendingGeometry {

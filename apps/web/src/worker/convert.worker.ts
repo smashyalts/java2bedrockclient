@@ -22,7 +22,13 @@ const api: WorkerApi = {
     let hintCount: number | undefined;
     if (configZip !== undefined) {
       const hints = parseOraxenConfigZip(configZip);
-      options = { ...options, baseItemHints: hints.baseItems, displayNameHints: hints.displayNames };
+      options = {
+        ...options,
+        baseItemHints: hints.baseItems,
+        displayNameHints: hints.displayNames,
+        equippableHints: hints.equippables,
+        cmdItemKeys: hints.cmdKeys,
+      };
       hintCount = hints.items;
     }
     const result = await convertPack(zipBytes, options, (stage, done, total) => {

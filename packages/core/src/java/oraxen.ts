@@ -29,6 +29,10 @@ export interface OraxenHints {
   baseItems: Record<string, string>;
   /** item key → display name from the config (colour codes stripped). */
   displayNames: Record<string, string>;
+  /** item key → equippable armor link from the config. */
+  equippables: Record<string, { asset: string; slot: string }>;
+  /** "minecraft:material|cmd" → item key (for packs dispatching on custom_model_data). */
+  cmdKeys: Record<string, string>;
   /** yml files parsed / items discovered, for reporting. */
   files: number;
   items: number;
@@ -36,7 +40,7 @@ export interface OraxenHints {
 
 export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
   const { vfs } = readZipDetailed(zipBytes);
-  const hints: OraxenHints = { baseItems: {}, displayNames: {}, files: 0, items: 0 };
+  const hints: OraxenHints = { baseItems: {}, displayNames: {}, equippables: {}, cmdKeys: {}, files: 0, items: 0 };
 
   for (const path of vfs.list({ suffix: ".yml" })) {
     const text = vfs.readText(path);
@@ -59,6 +63,10 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
       hints.baseItems[lowerKey] = base;
       const displayName = extractDisplayName(value);
       if (displayName !== undefined) hints.displayNames[lowerKey] = displayName;
+      const equippable = extractEquippable(value);
+      if (equippable !== undefined) hints.equippables[lowerKey] = equippable;
+      const cmd = extractCmd(value);
+      if (cmd !== undefined) hints.cmdKeys[`${base}|${cmd}`] = lowerKey;
       found++;
       // Model-id overrides (Oraxen Components.item_model / Pack.model,
       // ItemsAdder resource.model_path) — register those names too.
@@ -139,11 +147,34 @@ function stripNamespace(id: string): string {
   return (idx === -1 ? id : id.slice(idx + 1)).toLowerCase();
 }
 
-/** Oraxen `displayname` / ItemsAdder `display_name`, colour codes stripped. */
+/** Pack.custom_model_data (Oraxen/Nexo) — links cmd-dispatched items to their config key. */
+function extractCmd(item: unknown): number | undefined {
+  if (item === null || typeof item !== "object") return undefined;
+  const pack = (item as Record<string, unknown>)["Pack"];
+  if (pack === null || typeof pack !== "object") return undefined;
+  const cmd = (pack as Record<string, unknown>)["custom_model_data"];
+  return typeof cmd === "number" ? cmd : undefined;
+}
+
+/** Components.equippable (slot + asset_id / model) — the armor-set link. */
+function extractEquippable(item: unknown): { asset: string; slot: string } | undefined {
+  if (item === null || typeof item !== "object") return undefined;
+  const components = (item as Record<string, unknown>)["Components"];
+  if (components === null || typeof components !== "object") return undefined;
+  const equippable = (components as Record<string, unknown>)["equippable"];
+  if (equippable === null || typeof equippable !== "object") return undefined;
+  const eq = equippable as Record<string, unknown>;
+  const asset = eq["asset_id"] ?? eq["model"];
+  const slot = eq["slot"];
+  if (typeof asset !== "string" || typeof slot !== "string") return undefined;
+  return { asset: stripNamespace(asset), slot: slot.toLowerCase() };
+}
+
+/** Oraxen `displayname` / Nexo `customname` / ItemsAdder `display_name`, colour codes stripped. */
 function extractDisplayName(item: unknown): string | undefined {
   if (item === null || typeof item !== "object") return undefined;
   const obj = item as Record<string, unknown>;
-  const raw = obj["displayname"] ?? obj["display_name"] ?? obj["itemname"];
+  const raw = obj["displayname"] ?? obj["customname"] ?? obj["display_name"] ?? obj["itemname"];
   if (typeof raw !== "string") return undefined;
   const stripped = raw
     .replace(/[§&][0-9a-fk-orx]/gi, "") // legacy colour codes

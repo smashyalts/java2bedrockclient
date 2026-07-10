@@ -152,18 +152,55 @@ export function buildDefinition(
   variant: ItemVariant,
   bedrock: { icon: string; displayHandheld: boolean; protectionValue?: number },
 ): GeyserItemDefinition {
-  const name = safeName(variant.model);
+  // Resolve the host item early — it also keys the config cmd lookup below.
+  const baseItem = resolveBaseItem(ctx, variant);
+
+  // Config item key via (material, custom_model_data): the strongest link for
+  // packs that dispatch everything off vanilla items with cmd (Nexo/Oraxen).
+  const cmdValue =
+    variant.source.kind === "legacy"
+      ? variant.source.customModelData
+      : variant.predicates.find(
+          (p): p is Extract<typeof p, { type: "range_dispatch" }> =>
+            p.type === "range_dispatch" && p.property === "custom_model_data",
+        )?.threshold;
+  const configKey =
+    cmdValue !== undefined ? ctx.options.cmdItemKeys[`${baseItem}|${cmdValue}`] : undefined;
+
   // Prefer the real display name from plugin configs over a filename guess.
   const nameKeys = [
+    ...(configKey !== undefined ? [configKey] : []),
     ...(variant.source.kind === "modern"
       ? [parseResourceLocation(variant.source.itemModelId).path.toLowerCase()]
       : []),
     parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase(),
   ];
   const hintedName = nameKeys.map((k) => ctx.options.displayNameHints[k]).find((v) => v !== undefined);
+
+  // Identifier priority: config item key → item-model id (unless it's a
+  // generic vanilla id) → model path. Readable and stable even when the pack
+  // obfuscates model paths (Nexo UUID shuffling); model path disambiguates
+  // multi-model items (condition branches).
+  const modernPath =
+    variant.source.kind === "modern" ? parseResourceLocation(variant.source.itemModelId) : undefined;
+  const base =
+    configKey !== undefined
+      ? safeName(configKey)
+      : modernPath !== undefined && modernPath.namespace !== "minecraft"
+        ? safeName(modernPath.path)
+        : safeName(variant.model);
+  let identifierName = base;
+  if (ctx.usedBedrockIdentifiers.has(identifierName)) {
+    identifierName = `${base}_${safeName(variant.model)}`;
+    for (let i = 2; ctx.usedBedrockIdentifiers.has(identifierName); i++) {
+      identifierName = `${base}_${safeName(variant.model)}_${i}`;
+    }
+  }
+  ctx.usedBedrockIdentifiers.add(identifierName);
+
   const definition: GeyserItemDefinition = {
     type: variant.source.kind === "legacy" ? "legacy" : "definition",
-    bedrock_identifier: `geyser_custom:${name}`,
+    bedrock_identifier: `geyser_custom:${identifierName}`,
     display_name: hintedName ?? prettyName(variant.model),
     bedrock_options: {
       icon: bedrock.icon,
@@ -185,29 +222,29 @@ export function buildDefinition(
     definition.priority = variant.priority;
   }
 
-  let baseItem = variant.baseItem;
-  if (baseItem === undefined) {
-    // Base-item hints (parsed from Oraxen/Nexo server configs) beat the
-    // generic fallback: try the item-model name, then the model's last segment.
-    const hintKeys =
-      variant.source.kind === "modern"
-        ? [parseResourceLocation(variant.source.itemModelId).path.toLowerCase()]
-        : [];
-    hintKeys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
-    const hinted = hintKeys.map((k) => ctx.options.baseItemHints[k]).find((v) => v !== undefined);
-
-    if (hinted !== undefined) {
-      baseItem = hinted;
-      ctx.report.converted("items-hints", `${variant.origin} → ${variant.model}`, [`mapped under ${baseItem}`]);
-    } else {
-      baseItem = ctx.options.modernBaseItem;
-      ctx.report.approximated(
-        "items",
-        `${variant.origin} → ${variant.model}`,
-        `item-model asset has no fixed host item — mapped under ${baseItem}; upload your Oraxen/Nexo config zip or change the "modern base item" option`,
-      );
-    }
-  }
   (ctx.geyserMappings.items[baseItem] ??= []).push(definition);
   return definition;
+}
+
+/** Host item: pack-declared → config hints → configurable fallback. */
+function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
+  if (variant.baseItem !== undefined) return variant.baseItem;
+  // Base-item hints (parsed from Oraxen/Nexo server configs) beat the
+  // generic fallback: try the item-model name, then the model's last segment.
+  const hintKeys =
+    variant.source.kind === "modern"
+      ? [parseResourceLocation(variant.source.itemModelId).path.toLowerCase()]
+      : [];
+  hintKeys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
+  const hinted = hintKeys.map((k) => ctx.options.baseItemHints[k]).find((v) => v !== undefined);
+  if (hinted !== undefined) {
+    ctx.report.converted("items-hints", `${variant.origin} → ${variant.model}`, [`mapped under ${hinted}`]);
+    return hinted;
+  }
+  ctx.report.approximated(
+    "items",
+    `${variant.origin} → ${variant.model}`,
+    `item-model asset has no fixed host item — mapped under ${ctx.options.modernBaseItem}; upload your Oraxen/Nexo config zip or change the "modern base item" option`,
+  );
+  return ctx.options.modernBaseItem;
 }

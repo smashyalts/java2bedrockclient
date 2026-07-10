@@ -23,15 +23,19 @@ console.log("namespaces:", namespaces.join(", "));
 
 let baseItemHints: Record<string, string> | undefined;
 let displayNameHints: Record<string, string> | undefined;
+let equippableHints: Record<string, { asset: string; slot: string }> | undefined;
+let cmdItemKeys: Record<string, string> | undefined;
 if (configZipPath) {
   const hints = parseOraxenConfigZip(new Uint8Array(fs.readFileSync(configZipPath)));
-  console.log(`oraxen hints: ${hints.items} item(s) from ${hints.files} yml file(s)`);
+  console.log(`oraxen hints: ${hints.items} item(s) from ${hints.files} yml file(s), ${Object.keys(hints.equippables).length} equippable(s)`);
   baseItemHints = hints.baseItems;
   displayNameHints = hints.displayNames;
+  equippableHints = hints.equippables;
+  cmdItemKeys = hints.cmdKeys;
 }
 
 const packName = path.basename(input).replace(/\.(zip|mcpack)$/i, "");
-const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints });
+const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys });
 fs.mkdirSync(outdir, { recursive: true });
 fs.writeFileSync(path.join(outdir, packName + ".mcpack"), result.mcpack);
 if (result.geyserMappings) {

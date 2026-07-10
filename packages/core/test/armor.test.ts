@@ -56,18 +56,19 @@ describe("custom armor", () => {
     const mappings = JSON.parse(result.geyserMappings!);
 
     const defs = mappings.items["minecraft:paper"];
+    // Identifier derives from the readable item-model id now.
     const helmet = defs.find(
-      (d: { bedrock_identifier: string }) => d.bedrock_identifier === "geyser_custom:custom_item_ruby_helmet",
+      (d: { bedrock_identifier: string }) => d.bedrock_identifier === "geyser_custom:ruby_helmet",
     );
     expect(helmet).toBeDefined();
     expect(helmet.components["minecraft:equippable"]).toEqual({ slot: "head" });
 
     // Attachable emitted under the item's identifier.
-    const attachablePath = "attachables/geyser_custom/armor/geyser_custom_custom_item_ruby_helmet.json";
+    const attachablePath = "attachables/geyser_custom/armor/geyser_custom_ruby_helmet.json";
     expect(out.has(attachablePath)).toBe(true);
     const attachable = JSON.parse(out.readText(attachablePath)!);
     expect(attachable["minecraft:attachable"].description.identifier).toBe(
-      "geyser_custom:custom_item_ruby_helmet",
+      "geyser_custom:ruby_helmet",
     );
     expect(attachable["minecraft:attachable"].description.geometry.default).toBe(
       "geometry.player.armor.helmet",

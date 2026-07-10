@@ -231,8 +231,7 @@ function convertModel(
   const anims = buildDisplayAnimations(name, resolved.display);
   ctx.bedrock.writeJson(`animations/geyser_custom/${name}.animation.json`, anims.file);
 
-  // 6. Attachable (+ flipbook render controller when animated).
-  const identifier = `geyser_custom:${name}`;
+  // 6. Flipbook render controller when animated (shared by all attachables).
   let renderController: string | undefined;
   let extraTextures: Record<string, string> | undefined;
   if (timelineFrames > 1) {
@@ -248,33 +247,39 @@ function convertModel(
       buildFlipbookRenderController({ id: renderController, frameShortnames: shortnames, fps }),
     );
   }
-  ctx.bedrock.writeJson(
-    `attachables/geyser_custom/${name}.json`,
-    buildItemAttachable({
-      identifier,
-      material: ctx.options.attachableMaterial,
-      texture: atlasPath,
-      geometry: geometryId,
-      animations: anims.refs,
-      extraTextures,
-      renderController,
-    }),
-  );
 
   // 7. Icon: sprites.json override → isometric software render of the model.
   const iconKey = pickIcon(ctx, modelId, name, resolved, images);
 
-  // 8. Register one mapping entry per variant that used this model.
+  // 8. Register a mapping entry per variant, and an attachable per unique
+  // bedrock identifier (definitions may get item-model based identifiers, so
+  // one shared model can back several bedrock items).
+  const attachableIds = new Set<string>();
   for (const { variant } of group) {
     const definition = buildDefinition(ctx, variant, { icon: iconKey, displayHandheld: false });
     ctx.definitionTextures.set(definition, [...textureIds]);
+    const identifier = definition.bedrock_identifier!;
+    if (attachableIds.has(identifier)) continue;
+    attachableIds.add(identifier);
+    ctx.bedrock.writeJson(
+      `attachables/geyser_custom/${safeName(identifier.split(":")[1] ?? identifier)}.json`,
+      buildItemAttachable({
+        identifier,
+        material: ctx.options.attachableMaterial,
+        texture: atlasPath,
+        geometry: geometryId,
+        animations: anims.refs,
+        extraTextures,
+        renderController,
+      }),
+    );
   }
 
   const outputs = [
     atlasPath + ".png",
     `models/entity/geyser_custom/${name}.geo.json`,
     `animations/geyser_custom/${name}.animation.json`,
-    `attachables/geyser_custom/${name}.json`,
+    ...[...attachableIds].map((id) => `attachables/geyser_custom/${safeName(id.split(":")[1] ?? id)}.json`),
   ];
   if (timelineFrames > 1) {
     const note =

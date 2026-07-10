@@ -122,14 +122,17 @@ describe("accuracy improvements", () => {
       "assets/custom/textures/item/gauge.png": png(),
     });
     const result = await convertPack(zip, { packName: "Priority" });
-    const defs = JSON.parse(result.geyserMappings!).items["minecraft:paper"];
-    const byModel = Object.fromEntries(
-      defs.map((d: { bedrock_identifier: string; priority?: number }) => [d.bedrock_identifier, d.priority]),
+    const result2 = JSON.parse(result.geyserMappings!).items["minecraft:paper"];
+    const priorityByIcon = Object.fromEntries(
+      result2.map((d: { bedrock_options: { icon: string }; priority?: number }) => [
+        d.bedrock_options.icon,
+        d.priority,
+      ]),
     );
     // higher threshold → higher priority; fallback lowest
-    expect(byModel["geyser_custom:custom_item_gauge_high"]).toBe(2);
-    expect(byModel["geyser_custom:custom_item_gauge_low"]).toBe(1);
-    expect(byModel["geyser_custom:custom_item_gauge_empty"]).toBe(0);
+    expect(priorityByIcon["custom_item_gauge_high"]).toBe(2);
+    expect(priorityByIcon["custom_item_gauge_low"]).toBe(1);
+    expect(priorityByIcon["custom_item_gauge_empty"]).toBe(0);
   });
 
   it("sizes visible bounds to the model extents", async () => {

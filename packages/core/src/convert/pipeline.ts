@@ -61,6 +61,8 @@ export async function convertPack(
     modernBaseItem: options?.modernBaseItem ?? DEFAULT_OPTIONS.modernBaseItem,
     baseItemHints: options?.baseItemHints ?? DEFAULT_OPTIONS.baseItemHints,
     displayNameHints: options?.displayNameHints ?? DEFAULT_OPTIONS.displayNameHints,
+    equippableHints: options?.equippableHints ?? DEFAULT_OPTIONS.equippableHints,
+    cmdItemKeys: options?.cmdItemKeys ?? DEFAULT_OPTIONS.cmdItemKeys,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
   };
 
@@ -76,6 +78,7 @@ export async function convertPack(
     geyserBlocks: {},
     pendingGeometry: [],
     definitionTextures: new Map(),
+    usedBedrockIdentifiers: new Set(),
   };
 
   for (const entry of unreadable) {
