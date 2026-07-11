@@ -74,6 +74,14 @@ export function ResultView({
               ⬇ geyser_blocks.json
             </button>
           )}
+          {result.displayEntityMappings !== undefined && (
+            <button
+              style={{ ...buttonStyle, background: "var(--panel)", color: "var(--accent)", border: "1px solid var(--accent)" }}
+              onClick={() => download("geyser_displayentity_mappings.yml", result.displayEntityMappings!, "text/yaml")}
+            >
+              ⬇ furniture mappings.yml
+            </button>
+          )}
           <button
             style={{ ...buttonStyle, background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)" }}
             onClick={() =>
@@ -97,6 +105,21 @@ export function ResultView({
           , then restart.
           {result.geyserBlockMappings !== undefined && (
             <> Custom blocks also need <code>enable-custom-content: true</code> in Geyser's config.</>
+          )}
+          {result.displayEntityMappings !== undefined && (
+            <>
+              {" "}Furniture needs the{" "}
+              <a
+                href="https://github.com/GeyserExtensionists/GeyserDisplayEntity"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "var(--accent)" }}
+              >
+                GeyserDisplayEntity
+              </a>{" "}
+              extension: drop its jar in Geyser's <code>extensions/</code> folder and put the
+              furniture mappings yml in <code>extensions/geyserdisplayentity/Mappings/</code>.
+            </>
           )}
         </p>
       </div>

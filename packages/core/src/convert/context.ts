@@ -29,6 +29,12 @@ export interface ConvertOptions {
   /** Item keys worn as back cosmetics (armor-stand head items) — get a head lift. */
   backpackItems: string[];
   /**
+   * Item keys placed as world furniture (display entities). Matched definitions
+   * are emitted into a GeyserDisplayEntity extension mappings YAML so Bedrock
+   * players can see them (requires the GeyserDisplayEntity Geyser extension).
+   */
+  furnitureItems: string[];
+  /**
    * Max flipbook timeline frames per animated item; 0 = unlimited (full
    * animation, default). Lower values shrink the pack for slow connections.
    */
@@ -44,6 +50,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   equippableHints: {},
   cmdItemKeys: {},
   backpackItems: [],
+  furnitureItems: [],
   maxAnimationFrames: 0,
 };
 
@@ -77,6 +84,12 @@ export interface ConversionContext {
   definitionTextures: Map<GeyserItemDefinition, string[]>;
   /** Bedrock identifiers already assigned (must be unique across definitions). */
   usedBedrockIdentifiers: Set<string>;
+  /**
+   * Furniture definitions for the GeyserDisplayEntity extension mappings YAML:
+   * config key, host java item, bedrock identifier name (no namespace), and
+   * the legacy cmd value when the pack dispatches on custom_model_data.
+   */
+  displayEntityMappings: { key: string; type: string; identifier: string; modelData?: number }[];
 }
 
 export interface PendingGeometry {

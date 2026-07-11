@@ -26,6 +26,7 @@ let displayNameHints: Record<string, string> | undefined;
 let equippableHints: Record<string, { asset: string; slot: string }> | undefined;
 let cmdItemKeys: Record<string, string> | undefined;
 let backpackItems: string[] | undefined;
+let furnitureItems: string[] | undefined;
 if (configZipPaths.length > 0) {
   const hints = parseOraxenConfigZips(configZipPaths.map((p) => new Uint8Array(fs.readFileSync(p))));
   console.log(`oraxen hints: ${hints.items} item(s) from ${hints.files} yml file(s), ${Object.keys(hints.equippables).length} equippable(s)`);
@@ -34,11 +35,13 @@ if (configZipPaths.length > 0) {
   equippableHints = hints.equippables;
   cmdItemKeys = hints.cmdKeys;
   backpackItems = hints.backpacks;
+  furnitureItems = hints.furniture;
   if (hints.backpacks.length > 0) console.log(`backpack cosmetics: ${hints.backpacks.join(", ")}`);
+  if (hints.furniture.length > 0) console.log(`furniture items: ${hints.furniture.length}`);
 }
 
 const packName = path.basename(input).replace(/\.(zip|mcpack)$/i, "");
-const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys, backpackItems });
+const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys, backpackItems, furnitureItems });
 fs.mkdirSync(outdir, { recursive: true });
 fs.writeFileSync(path.join(outdir, packName + ".mcpack"), result.mcpack);
 if (result.geyserMappings) {
@@ -46,6 +49,9 @@ if (result.geyserMappings) {
 }
 if (result.geyserBlockMappings) {
   fs.writeFileSync(path.join(outdir, "geyser_blocks.json"), result.geyserBlockMappings);
+}
+if (result.displayEntityMappings) {
+  fs.writeFileSync(path.join(outdir, "geyser_displayentity_mappings.yml"), result.displayEntityMappings);
 }
 fs.writeFileSync(path.join(outdir, "report.json"), JSON.stringify(result.report, null, 2));
 console.log("summary:", JSON.stringify(result.report.summary));

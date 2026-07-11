@@ -102,7 +102,11 @@ function convertBlockstates(
       (def as Record<string, unknown>)["transformation"] = { rotation: [rx, ry, 0] };
     }
     overrides[normalizeStateKey(stateKey)] = def;
-    base ??= { name: def.name ?? safeName(variant.model), ...def };
+    if (base === undefined) {
+      base = { name: def.name ?? safeName(variant.model), ...def };
+      // A rotated variant's transformation must not become the block default.
+      delete (base as unknown as Record<string, unknown>)["transformation"];
+    }
     converted++;
   }
 

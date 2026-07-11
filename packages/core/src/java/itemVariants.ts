@@ -58,12 +58,26 @@ export function extractLegacyVariants(pack: JavaPack): VariantExtraction {
           continue;
         }
         const extraPredicates: VariantPredicate[] = [];
+        // charged/firework combine into one Geyser charge_type match.
+        const charged = predicate["charged"];
+        const firework = predicate["firework"];
+        if (firework !== undefined && firework !== 0) {
+          extraPredicates.push({ type: "match", property: "charge_type", value: "rocket" });
+        } else if (charged !== undefined) {
+          extraPredicates.push({
+            type: "match",
+            property: "charge_type",
+            value: charged !== 0 ? "arrow" : "none",
+          });
+        }
         for (const [key, value] of Object.entries(predicate)) {
-          if (key === "custom_model_data") continue;
+          if (key === "custom_model_data" || key === "charged" || key === "firework") continue;
           if (key === "damaged" || key === "broken") {
             extraPredicates.push({ type: "condition", property: key, expected: value !== 0 });
           } else if (key === "damage") {
             extraPredicates.push({ type: "range_dispatch", property: "damage", threshold: value, normalize: true });
+          } else if (key === "cast") {
+            extraPredicates.push({ type: "condition", property: "fishing_rod_cast", expected: value !== 0 });
           } else {
             out.unsupported.push({
               origin: `${path} → ${override.model}`,
@@ -221,11 +235,21 @@ function flattenNode(
         if (node.fallback) flattenNode(node.fallback, predicates, ctx, priority);
         return;
       }
+      // Java scales the property value before threshold comparison; forward it.
+      const scale = typeof node["scale"] === "number" ? (node["scale"] as number) : undefined;
       const entries = [...(node.entries ?? [])].sort((a, b) => a.threshold - b.threshold);
       entries.forEach((entry, i) => {
         flattenNode(
           entry.model,
-          [...predicates, { type: "range_dispatch", property: geyserProperty, threshold: entry.threshold }],
+          [
+            ...predicates,
+            {
+              type: "range_dispatch",
+              property: geyserProperty,
+              threshold: entry.threshold,
+              ...(scale !== undefined ? { scale } : {}),
+            },
+          ],
           ctx,
           (priority ?? 0) + i + 1,
         );

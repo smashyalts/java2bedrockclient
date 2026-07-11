@@ -38,6 +38,12 @@ export interface OraxenHints {
    * stand head items that Bedrock renders lower than Java).
    */
   backpacks: string[];
+  /**
+   * Item keys placed in the world as furniture (Oraxen/Nexo Mechanics.furniture,
+   * ItemsAdder behaviours.furniture) — display-entity items that need the
+   * GeyserDisplayEntity extension to show on Bedrock.
+   */
+  furniture: string[];
   /** yml files parsed / items discovered, for reporting. */
   files: number;
   items: number;
@@ -60,22 +66,30 @@ export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
     equippables: {},
     cmdKeys: {},
     backpacks: [],
+    furniture: [],
     files: 0,
     items: 0,
   };
   const backpackSet = new Set<string>();
+  const furnitureSet = new Set<string>();
   for (const zipBytes of zips) {
-    parseOne(zipBytes, hints, backpackSet);
+    parseOne(zipBytes, hints, backpackSet, furnitureSet);
   }
   // Resolve material+cmd backpack refs now that every item is known.
   for (const ref of backpackSet) {
     if (ref.includes("|") && hints.cmdKeys[ref] !== undefined) backpackSet.add(hints.cmdKeys[ref]!);
   }
   hints.backpacks = [...backpackSet].filter((k) => !k.includes("|"));
+  hints.furniture = [...furnitureSet];
   return hints;
 }
 
-function parseOne(zipBytes: Uint8Array, hints: OraxenHints, backpackSet: Set<string>): void {
+function parseOne(
+  zipBytes: Uint8Array,
+  hints: OraxenHints,
+  backpackSet: Set<string>,
+  furnitureSet: Set<string>,
+): void {
   const { vfs } = readZipDetailed(zipBytes);
 
   for (const path of vfs.list({ suffix: ".yml" })) {
@@ -108,11 +122,14 @@ function parseOne(zipBytes: Uint8Array, hints: OraxenHints, backpackSet: Set<str
         if (backpackSet.has(`${base}|${cmd}`)) backpackSet.add(lowerKey);
       }
       found++;
+      const isFurniture = extractIsFurniture(value);
+      if (isFurniture) furnitureSet.add(lowerKey);
       // Model-id overrides (Oraxen Components.item_model / Pack.model,
       // ItemsAdder resource.model_path) — register those names too.
       for (const alias of extractModelAliases(value)) {
         hints.baseItems[alias] = base;
         if (displayName !== undefined) hints.displayNames[alias] = displayName;
+        if (isFurniture) furnitureSet.add(alias);
       }
     };
 
@@ -204,6 +221,19 @@ function extractModelAliases(item: unknown): string[] {
 function stripNamespace(id: string): string {
   const idx = id.indexOf(":");
   return (idx === -1 ? id : id.slice(idx + 1)).toLowerCase();
+}
+
+/** Oraxen/Nexo Mechanics.furniture, ItemsAdder behaviours.furniture — world-placed display-entity items. */
+function extractIsFurniture(item: unknown): boolean {
+  if (item === null || typeof item !== "object") return false;
+  const obj = item as Record<string, unknown>;
+  for (const sectionKey of ["Mechanics", "mechanics", "behaviours", "behaviors"]) {
+    const section = obj[sectionKey];
+    if (section !== null && typeof section === "object" && "furniture" in (section as object)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Pack.custom_model_data (Oraxen/Nexo) — links cmd-dispatched items to their config key. */

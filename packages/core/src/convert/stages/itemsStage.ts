@@ -222,6 +222,21 @@ export function buildDefinition(
     definition.priority = variant.priority;
   }
 
+  // Furniture (display-entity items from plugin configs): record a
+  // GeyserDisplayEntity extension mapping so world-placed furniture renders
+  // for Bedrock players (offsets tunable in the emitted YAML).
+  if (ctx.options.furnitureItems.length > 0) {
+    const furnitureKey = nameKeys.find((k) => ctx.options.furnitureItems.includes(k));
+    if (furnitureKey !== undefined) {
+      ctx.displayEntityMappings.push({
+        key: identifierName,
+        type: baseItem,
+        identifier: identifierName,
+        ...(variant.source.kind === "legacy" ? { modelData: variant.source.customModelData } : {}),
+      });
+    }
+  }
+
   (ctx.geyserMappings.items[baseItem] ??= []).push(definition);
   return definition;
 }

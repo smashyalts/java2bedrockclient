@@ -18,6 +18,62 @@ function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
 }
 
 describe("2D custom items", () => {
+  it("maps legacy cast/charged/firework predicates to Geyser conditions", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/crossbow.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "minecraft:item/crossbow_standby" },
+        overrides: [
+          { predicate: { custom_model_data: 1 }, model: "custom:item/gun" },
+          { predicate: { custom_model_data: 1, charged: 1 }, model: "custom:item/gun_loaded" },
+          { predicate: { custom_model_data: 1, charged: 1, firework: 1 }, model: "custom:item/gun_rocket" },
+        ],
+      }),
+      "assets/minecraft/models/item/fishing_rod.json": JSON.stringify({
+        parent: "minecraft:item/handheld_rod",
+        textures: { layer0: "minecraft:item/fishing_rod" },
+        overrides: [
+          { predicate: { custom_model_data: 2, cast: 1 }, model: "custom:item/hook_cast" },
+        ],
+      }),
+      "assets/custom/models/item/gun.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/gun" },
+      }),
+      "assets/custom/models/item/gun_loaded.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/gun" },
+      }),
+      "assets/custom/models/item/gun_rocket.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/gun" },
+      }),
+      "assets/custom/models/item/hook_cast.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/gun" },
+      }),
+      "assets/custom/textures/item/gun.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Predicates" });
+    const mappings = JSON.parse(result.geyserMappings!);
+    const crossbow = mappings.items["minecraft:crossbow"];
+    expect(crossbow).toHaveLength(3);
+    expect(crossbow[1].predicate[0]).toMatchObject({
+      type: "match",
+      property: "charge_type",
+      value: "arrow",
+    });
+    expect(crossbow[2].predicate[0]).toMatchObject({
+      type: "match",
+      property: "charge_type",
+      value: "rocket",
+    });
+    const rod = mappings.items["minecraft:fishing_rod"];
+    expect(rod[0].predicate[0]).toMatchObject({ type: "condition", property: "fishing_rod_cast" });
+  });
+
   it("converts legacy custom_model_data overrides to v2 legacy mappings", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

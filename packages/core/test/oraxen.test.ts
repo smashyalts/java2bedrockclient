@@ -95,6 +95,59 @@ paper_wings:
     expect(hints.backpacks).toContain("paper_wings"); // resolved via material+cmd
   });
 
+  it("detects furniture items (Oraxen Mechanics + ItemsAdder behaviours)", () => {
+    const NEXO_FURNITURE_YML = `
+plushie_bear:
+  material: PAPER
+  Components:
+    item_model: nexo:plushie_bear
+  Mechanics:
+    furniture:
+      type: DISPLAY_ENTITY
+      hitbox: { width: 1, height: 1 }
+`;
+    const IA_FURNITURE_YML = `
+items:
+  garden_chair:
+    resource:
+      material: PAPER
+      generate: true
+    behaviours:
+      furniture:
+        entity: item_display
+`;
+    const hints = parseOraxenConfigZip(
+      fixtureZip({ "items/furniture.yml": NEXO_FURNITURE_YML, "contents/x/configs/f.yml": IA_FURNITURE_YML }),
+    );
+    expect(hints.furniture).toContain("plushie_bear");
+    expect(hints.furniture).toContain("plushie_bear"); // key itself
+    expect(hints.furniture).toContain("garden_chair");
+    expect(hints.furniture).not.toContain("ruby_sword");
+  });
+
+  it("emits GeyserDisplayEntity mappings YAML for furniture items", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/plushie_bear.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/plushie_bear" },
+      }),
+      "assets/nexo/models/item/plushie_bear.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "nexo:item/plushie_bear" },
+      }),
+      "assets/nexo/textures/item/plushie_bear.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Furniture",
+      baseItemHints: { plushie_bear: "minecraft:paper" },
+      furnitureItems: ["plushie_bear"],
+    });
+    expect(result.displayEntityMappings).toBeDefined();
+    expect(result.displayEntityMappings).toContain("mappings:");
+    expect(result.displayEntityMappings).toContain('type: "minecraft:paper"');
+    expect(result.displayEntityMappings).toContain('item-identifier: "plushie_bear"');
+  });
+
   it("maps modern item definitions under hinted base items", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),

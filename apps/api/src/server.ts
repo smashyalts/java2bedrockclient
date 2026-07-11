@@ -63,6 +63,7 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
     options.equippableHints = hints.equippables;
     options.cmdItemKeys = hints.cmdKeys;
     options.backpackItems = hints.backpacks;
+    options.furnitureItems = hints.furniture;
   }
 
   const result = await convertPack(packBytes, options);
@@ -73,6 +74,7 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   };
   if (result.geyserMappings) bundle["geyser_mappings.json"] = new TextEncoder().encode(result.geyserMappings);
   if (result.geyserBlockMappings) bundle["geyser_blocks.json"] = new TextEncoder().encode(result.geyserBlockMappings);
+  if (result.displayEntityMappings) bundle["geyser_displayentity_mappings.yml"] = new TextEncoder().encode(result.displayEntityMappings);
 
   const out = zipSync(bundle, { level: 0 });
   res.writeHead(200, {
