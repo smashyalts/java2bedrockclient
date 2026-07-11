@@ -26,6 +26,8 @@ export interface ConvertOptions {
   equippableHints: Record<string, { asset: string; slot: string }>;
   /** "minecraft:material|cmd" → config item key (cmd-dispatched packs). */
   cmdItemKeys: Record<string, string>;
+  /** Item keys worn as back cosmetics (armor-stand head items) — get a head lift. */
+  backpackItems: string[];
   /**
    * Max flipbook timeline frames per animated item; 0 = unlimited (full
    * animation, default). Lower values shrink the pack for slow connections.
@@ -41,6 +43,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   displayNameHints: {},
   equippableHints: {},
   cmdItemKeys: {},
+  backpackItems: [],
   maxAnimationFrames: 0,
 };
 

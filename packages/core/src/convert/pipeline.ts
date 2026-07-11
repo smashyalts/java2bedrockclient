@@ -63,6 +63,7 @@ export async function convertPack(
     displayNameHints: options?.displayNameHints ?? DEFAULT_OPTIONS.displayNameHints,
     equippableHints: options?.equippableHints ?? DEFAULT_OPTIONS.equippableHints,
     cmdItemKeys: options?.cmdItemKeys ?? DEFAULT_OPTIONS.cmdItemKeys,
+    backpackItems: options?.backpackItems ?? DEFAULT_OPTIONS.backpackItems,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
   };
 

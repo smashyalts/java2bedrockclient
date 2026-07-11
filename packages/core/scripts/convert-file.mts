@@ -25,6 +25,7 @@ let baseItemHints: Record<string, string> | undefined;
 let displayNameHints: Record<string, string> | undefined;
 let equippableHints: Record<string, { asset: string; slot: string }> | undefined;
 let cmdItemKeys: Record<string, string> | undefined;
+let backpackItems: string[] | undefined;
 if (configZipPath) {
   const hints = parseOraxenConfigZip(new Uint8Array(fs.readFileSync(configZipPath)));
   console.log(`oraxen hints: ${hints.items} item(s) from ${hints.files} yml file(s), ${Object.keys(hints.equippables).length} equippable(s)`);
@@ -32,10 +33,12 @@ if (configZipPath) {
   displayNameHints = hints.displayNames;
   equippableHints = hints.equippables;
   cmdItemKeys = hints.cmdKeys;
+  backpackItems = hints.backpacks;
+  if (hints.backpacks.length > 0) console.log(`backpack cosmetics: ${hints.backpacks.join(", ")}`);
 }
 
 const packName = path.basename(input).replace(/\.(zip|mcpack)$/i, "");
-const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys });
+const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys, backpackItems });
 fs.mkdirSync(outdir, { recursive: true });
 fs.writeFileSync(path.join(outdir, packName + ".mcpack"), result.mcpack);
 if (result.geyserMappings) {

@@ -70,6 +70,31 @@ items:
     expect(hints.items).toBe(2);
   });
 
+  it("detects HMCCosmetics backpack items (nexo ref and material+cmd forms)", () => {
+    const HMCC_YML = `
+leaf_wings:
+  slot: BACKPACK
+  item:
+    material: "nexo:fantastic_wings"
+old_wings:
+  type: BACKPACK
+  item:
+    material: PAPER
+    model-data: 55
+`;
+    const NEXO_YML = `
+paper_wings:
+  material: PAPER
+  Pack:
+    custom_model_data: 55
+`;
+    const hints = parseOraxenConfigZip(
+      fixtureZip({ "cosmetics/back.yml": HMCC_YML, "items/wings.yml": NEXO_YML }),
+    );
+    expect(hints.backpacks).toContain("fantastic_wings");
+    expect(hints.backpacks).toContain("paper_wings"); // resolved via material+cmd
+  });
+
   it("maps modern item definitions under hinted base items", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),

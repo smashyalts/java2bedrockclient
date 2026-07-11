@@ -33,6 +33,11 @@ export interface OraxenHints {
   equippables: Record<string, { asset: string; slot: string }>;
   /** "minecraft:material|cmd" → item key (for packs dispatching on custom_model_data). */
   cmdKeys: Record<string, string>;
+  /**
+   * Item keys worn as back cosmetics (HMCCosmetics BACKPACK entries — armor
+   * stand head items that Bedrock renders lower than Java).
+   */
+  backpacks: string[];
   /** yml files parsed / items discovered, for reporting. */
   files: number;
   items: number;
@@ -40,7 +45,16 @@ export interface OraxenHints {
 
 export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
   const { vfs } = readZipDetailed(zipBytes);
-  const hints: OraxenHints = { baseItems: {}, displayNames: {}, equippables: {}, cmdKeys: {}, files: 0, items: 0 };
+  const hints: OraxenHints = {
+    baseItems: {},
+    displayNames: {},
+    equippables: {},
+    cmdKeys: {},
+    backpacks: [],
+    files: 0,
+    items: 0,
+  };
+  const backpackSet = new Set<string>();
 
   for (const path of vfs.list({ suffix: ".yml" })) {
     const text = vfs.readText(path);
@@ -66,7 +80,11 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
       const equippable = extractEquippable(value);
       if (equippable !== undefined) hints.equippables[lowerKey] = equippable;
       const cmd = extractCmd(value);
-      if (cmd !== undefined) hints.cmdKeys[`${base}|${cmd}`] = lowerKey;
+      if (cmd !== undefined) {
+        hints.cmdKeys[`${base}|${cmd}`] = lowerKey;
+        // Resolve cmd-style backpack refs (HMCC "material + model-data" form).
+        if (backpackSet.has(`${base}|${cmd}`)) backpackSet.add(lowerKey);
+      }
       found++;
       // Model-id overrides (Oraxen Components.item_model / Pack.model,
       // ItemsAdder resource.model_path) — register those names too.
@@ -75,6 +93,26 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
         if (displayName !== undefined) hints.displayNames[alias] = displayName;
       }
     };
+
+    // HMCCosmetics layout: entries with type/slot BACKPACK reference an item
+    // (often a Nexo/Oraxen key via "material: nexo:<key>" or an ItemsAdder id).
+    for (const value of Object.values(root)) {
+      if (value === null || typeof value !== "object") continue;
+      const obj = value as Record<string, unknown>;
+      const kind = obj["type"] ?? obj["slot"];
+      if (typeof kind !== "string" || !kind.toUpperCase().includes("BACKPACK")) continue;
+      const item = obj["item"];
+      if (item === null || typeof item === "undefined" || typeof item !== "object") continue;
+      const material = (item as Record<string, unknown>)["material"];
+      if (typeof material === "string" && material.includes(":")) {
+        backpackSet.add(stripNamespace(material));
+      }
+      const modelData = (item as Record<string, unknown>)["model-data"];
+      if (typeof material === "string" && !material.includes(":") && typeof modelData === "number") {
+        // vanilla material + cmd — resolve to the config key later via cmdKeys
+        backpackSet.add(`minecraft:${material.toLowerCase()}|${modelData}`);
+      }
+    }
 
     // ItemsAdder layout: items live under an "items" section.
     const iaItems = root["items"];
@@ -94,6 +132,7 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
       hints.items += found;
     }
   }
+  hints.backpacks = [...backpackSet].filter((k) => !k.includes("|"));
   return hints;
 }
 

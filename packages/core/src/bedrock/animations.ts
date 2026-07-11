@@ -72,6 +72,14 @@ export interface BuiltAnimations {
 export function buildDisplayAnimations(
   name: string,
   display: Partial<Record<JavaDisplayContext, JavaDisplayTransform>>,
+  options?: {
+    /**
+     * Extra Y offset (geometry units, 16 = one block) added to the head-slot
+     * base position. Bedrock renders armor-stand head items (HMCCosmetics
+     * backpacks/wings) lower than Java; +12 ≈ the observed gap.
+     */
+    headLift?: number;
+  },
 ): BuiltAnimations {
   const animations: Record<string, object> = {};
   const refs: Record<string, string> = {};
@@ -86,12 +94,13 @@ export function buildDisplayAnimations(
     const scale: Vec3 = java?.scale ?? [1, 1, 1];
     const vs = slot.valueScale;
 
+    const lift = slot.animationKey === "head" ? (options?.headLift ?? 0) : 0;
     const bones: Record<string, object> = {
       [BONE_ROOT]: {
         rotation: slot.baseRotation,
         position: [
           slot.basePosition[0] - translation[0] * vs,
-          slot.basePosition[1] + translation[1] * vs,
+          slot.basePosition[1] + translation[1] * vs + lift,
           slot.basePosition[2] + translation[2] * vs,
         ],
       },

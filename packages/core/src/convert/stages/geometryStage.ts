@@ -9,6 +9,7 @@ import { sha256 } from "@noble/hashes/sha2";
 import { renderModelIcon } from "../../image/modelRender.js";
 import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
+import { parseResourceLocation } from "../../java/javaPack.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
 
@@ -227,9 +228,32 @@ function convertModel(
   });
   ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}.geo.json`, geo.geometry);
 
-  // 5. Display-transform animations.
-  const anims = buildDisplayAnimations(name, resolved.display);
+  // 5. Display-transform animations. Back cosmetics (HMCCosmetics backpacks —
+  // armor-stand head items) get a head lift: Bedrock renders those lower than Java.
+  const backpacks = ctx.options.backpackItems;
+  const isBackpack =
+    backpacks.length > 0 &&
+    group.some(({ variant }) => {
+      const keys = [
+        ...(variant.source.kind === "modern"
+          ? [parseResourceLocation(variant.source.itemModelId).path.toLowerCase()]
+          : []),
+        parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase(),
+        ...(variant.baseItem !== undefined && cmdOf(variant) !== undefined
+          ? [ctx.options.cmdItemKeys[`${variant.baseItem}|${cmdOf(variant)}`] ?? ""]
+          : []),
+      ];
+      return keys.some((k) => k !== "" && backpacks.includes(k));
+    });
+  const anims = buildDisplayAnimations(name, resolved.display, isBackpack ? { headLift: 12 } : undefined);
   ctx.bedrock.writeJson(`animations/geyser_custom/${name}.animation.json`, anims.file);
+  if (isBackpack) {
+    ctx.report.approximated(
+      "items-3d",
+      modelId,
+      "back cosmetic (HMCCosmetics backpack): head position lifted +12 units to compensate Bedrock armor-stand rendering — report over/under-shoot for tuning",
+    );
+  }
 
   // 6. Flipbook render controller when animated (shared by all attachables).
   let renderController: string | undefined;
@@ -295,6 +319,15 @@ function convertModel(
   } else {
     ctx.report.converted("items-3d", modelId, outputs);
   }
+}
+
+/** custom_model_data value of a variant (legacy field or modern range_dispatch predicate). */
+function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
+  if (variant.source.kind === "legacy") return variant.source.customModelData;
+  const p = variant.predicates.find(
+    (p) => p.type === "range_dispatch" && p.property === "custom_model_data",
+  );
+  return p !== undefined && "threshold" in p ? p.threshold : undefined;
 }
 
 function resolveFaceTexture(textures: Record<string, string>, ref: string): string | undefined {

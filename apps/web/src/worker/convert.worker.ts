@@ -28,6 +28,7 @@ const api: WorkerApi = {
         displayNameHints: hints.displayNames,
         equippableHints: hints.equippables,
         cmdItemKeys: hints.cmdKeys,
+        backpackItems: hints.backpacks,
       };
       hintCount = hints.items;
     }
