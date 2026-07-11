@@ -18,7 +18,7 @@ export function App() {
   const [modernBaseItem, setModernBaseItem] = useState("minecraft:paper");
   const [maxAnimationFrames, setMaxAnimationFrames] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
-  const [configZip, setConfigZip] = useState<{ name: string; bytes: Uint8Array } | null>(null);
+  const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
   const workerRef = useRef<Remote<WorkerApi> | null>(null);
 
   const getWorker = useCallback((): Remote<WorkerApi> => {
@@ -44,14 +44,14 @@ export function App() {
           proxy((stage: string, done: number, total: number) => {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
-          configZip?.bytes,
+          configZips.map((c) => c.bytes),
         );
         setPhase({ kind: "done", result, fileName: file.name, packName });
       } catch (err) {
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
-    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, configZip],
+    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, configZips],
   );
 
   return (
@@ -131,25 +131,30 @@ export function App() {
                   </select>
                 </label>
                 <label style={labelStyle}>
-                  Oraxen / Nexo / ItemsAdder config zip (optional) — auto-detects each item's
-                  real base item. Zip your <code>plugins/Oraxen/items/</code> or{" "}
-                  <code>plugins/ItemsAdder/contents/</code> folder (whole plugin folder also works).
+                  Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items
+                  and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
+                  <code>plugins/Nexo/items/</code>, <code>plugins/HMCCosmetics/cosmetics/</code>) —
+                  upload them together or as separate zips. Enables real base items, display names,
+                  armor sets, and back-cosmetic positioning.
                   <input
                     type="file"
                     accept=".zip"
+                    multiple
                     style={{ ...inputStyle, padding: 6 }}
                     onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) {
-                        setConfigZip(null);
-                        return;
-                      }
-                      setConfigZip({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+                      const files = [...(e.target.files ?? [])];
+                      const loaded = await Promise.all(
+                        files.map(async (file) => ({
+                          name: file.name,
+                          bytes: new Uint8Array(await file.arrayBuffer()),
+                        })),
+                      );
+                      setConfigZips(loaded);
                     }}
                   />
-                  {configZip && (
+                  {configZips.length > 0 && (
                     <span style={{ color: "var(--accent)" }}>
-                      ✓ {configZip.name} loaded — items will map to their real base items
+                      ✓ {configZips.map((c) => c.name).join(", ")} loaded
                     </span>
                   )}
                 </label>

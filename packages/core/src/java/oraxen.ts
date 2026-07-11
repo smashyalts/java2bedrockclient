@@ -44,7 +44,16 @@ export interface OraxenHints {
 }
 
 export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
-  const { vfs } = readZipDetailed(zipBytes);
+  return parseOraxenConfigZips([zipBytes]);
+}
+
+/**
+ * Parse any number of plugin config zips (Nexo/Oraxen items, ItemsAdder
+ * contents, HMCCosmetics cosmetics — in any combination and order) into one
+ * merged hint set. Cross-zip references (an HMCC backpack pointing at a Nexo
+ * item by material+cmd) resolve after all files are read.
+ */
+export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
   const hints: OraxenHints = {
     baseItems: {},
     displayNames: {},
@@ -55,6 +64,19 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
     items: 0,
   };
   const backpackSet = new Set<string>();
+  for (const zipBytes of zips) {
+    parseOne(zipBytes, hints, backpackSet);
+  }
+  // Resolve material+cmd backpack refs now that every item is known.
+  for (const ref of backpackSet) {
+    if (ref.includes("|") && hints.cmdKeys[ref] !== undefined) backpackSet.add(hints.cmdKeys[ref]!);
+  }
+  hints.backpacks = [...backpackSet].filter((k) => !k.includes("|"));
+  return hints;
+}
+
+function parseOne(zipBytes: Uint8Array, hints: OraxenHints, backpackSet: Set<string>): void {
+  const { vfs } = readZipDetailed(zipBytes);
 
   for (const path of vfs.list({ suffix: ".yml" })) {
     const text = vfs.readText(path);
@@ -132,8 +154,6 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
       hints.items += found;
     }
   }
-  hints.backpacks = [...backpackSet].filter((k) => !k.includes("|"));
-  return hints;
 }
 
 function extractMaterial(item: unknown): string | undefined {

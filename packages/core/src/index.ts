@@ -5,4 +5,4 @@ export { readZip, readZipDetailed, writeZip, type ReadZipResult } from "./io/zip
 export { JavaPack, parseResourceLocation } from "./java/javaPack.js";
 export { ConversionReport, type ReportEntry, type ConversionStatus } from "./report/report.js";
 export { deterministicUuid, buildManifest } from "./bedrock/manifest.js";
-export { parseOraxenConfigZip, type OraxenHints } from "./java/oraxen.js";
+export { parseOraxenConfigZip, parseOraxenConfigZips, type OraxenHints } from "./java/oraxen.js";

@@ -2,7 +2,7 @@
 import { expose } from "comlink";
 import {
   convertPack,
-  parseOraxenConfigZip,
+  parseOraxenConfigZips,
   type ConvertOptions,
   type ConvertResult,
 } from "@geyser-converter/core";
@@ -12,16 +12,16 @@ export interface WorkerApi {
     zipBytes: Uint8Array,
     options: Partial<ConvertOptions>,
     onProgress: (stage: string, done: number, total: number) => void,
-    /** Optional Oraxen/Nexo config zip — parsed for per-item base-item hints. */
-    configZip?: Uint8Array,
+    /** Optional plugin config zips (Nexo/Oraxen/ItemsAdder/HMCCosmetics, any mix). */
+    configZips?: Uint8Array[],
   ): Promise<ConvertResult & { hintCount?: number }>;
 }
 
 const api: WorkerApi = {
-  async convert(zipBytes, options, onProgress, configZip) {
+  async convert(zipBytes, options, onProgress, configZips) {
     let hintCount: number | undefined;
-    if (configZip !== undefined) {
-      const hints = parseOraxenConfigZip(configZip);
+    if (configZips !== undefined && configZips.length > 0) {
+      const hints = parseOraxenConfigZips(configZips);
       options = {
         ...options,
         baseItemHints: hints.baseItems,

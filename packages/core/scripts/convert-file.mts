@@ -1,11 +1,11 @@
 // Convert a Java pack zip from the CLI (dev tool).
-// Usage: npx tsx scripts/convert-file.mts <input.zip> [outdir] [oraxen-config.zip]
+// Usage: npx tsx scripts/convert-file.mts <input.zip> [outdir] [config1.zip config2.zip ...]
 import fs from "node:fs";
 import path from "node:path";
 import { readZipDetailed } from "../src/io/zip.js";
-import { convertPack, parseOraxenConfigZip } from "../src/index.js";
+import { convertPack, parseOraxenConfigZips } from "../src/index.js";
 
-const [input, outdir = ".", configZipPath] = process.argv.slice(2);
+const [input, outdir = ".", ...configZipPaths] = process.argv.slice(2);
 if (!input) {
   console.error("usage: tsx scripts/convert-file.mts <input.zip> [outdir]");
   process.exit(1);
@@ -26,8 +26,8 @@ let displayNameHints: Record<string, string> | undefined;
 let equippableHints: Record<string, { asset: string; slot: string }> | undefined;
 let cmdItemKeys: Record<string, string> | undefined;
 let backpackItems: string[] | undefined;
-if (configZipPath) {
-  const hints = parseOraxenConfigZip(new Uint8Array(fs.readFileSync(configZipPath)));
+if (configZipPaths.length > 0) {
+  const hints = parseOraxenConfigZips(configZipPaths.map((p) => new Uint8Array(fs.readFileSync(p))));
   console.log(`oraxen hints: ${hints.items} item(s) from ${hints.files} yml file(s), ${Object.keys(hints.equippables).length} equippable(s)`);
   baseItemHints = hints.baseItems;
   displayNameHints = hints.displayNames;

@@ -18,7 +18,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import Busboy from "busboy";
 import { zipSync } from "fflate";
-import { convertPack, parseOraxenConfigZip, type ConvertOptions } from "@geyser-converter/core";
+import { convertPack, parseOraxenConfigZips, type ConvertOptions } from "@geyser-converter/core";
 
 const PORT = Number(process.env.PORT ?? 3000);
 /** Reject uploads larger than this (default 512 MB). */
@@ -35,10 +35,10 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   const contentType = req.headers["content-type"] ?? "";
 
   let packBytes: Uint8Array | undefined;
-  let configBytes: Uint8Array | undefined;
+  let configZips: Uint8Array[] = [];
 
   if (contentType.startsWith("multipart/form-data")) {
-    ({ packBytes, configBytes } = await readMultipart(req));
+    ({ packBytes, configZips } = await readMultipart(req));
   } else {
     packBytes = await readBody(req);
   }
@@ -56,10 +56,13 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   if (baseItem) options.modernBaseItem = baseItem;
   const maxFrames = url.searchParams.get("maxAnimationFrames");
   if (maxFrames) options.maxAnimationFrames = Number(maxFrames);
-  if (configBytes !== undefined) {
-    const hints = parseOraxenConfigZip(configBytes);
+  if (configZips.length > 0) {
+    const hints = parseOraxenConfigZips(configZips);
     options.baseItemHints = hints.baseItems;
     options.displayNameHints = hints.displayNames;
+    options.equippableHints = hints.equippables;
+    options.cmdItemKeys = hints.cmdKeys;
+    options.backpackItems = hints.backpacks;
   }
 
   const result = await convertPack(packBytes, options);
@@ -100,17 +103,18 @@ function readBody(req: http.IncomingMessage): Promise<Uint8Array> {
 
 function readMultipart(
   req: http.IncomingMessage,
-): Promise<{ packBytes?: Uint8Array; configBytes?: Uint8Array }> {
+): Promise<{ packBytes?: Uint8Array; configZips: Uint8Array[] }> {
   return new Promise((resolve, reject) => {
     const bb = Busboy({ headers: req.headers, limits: { fileSize: MAX_UPLOAD } });
-    const out: { packBytes?: Uint8Array; configBytes?: Uint8Array } = {};
+    const out: { packBytes?: Uint8Array; configZips: Uint8Array[] } = { configZips: [] };
     bb.on("file", (field, stream) => {
       const chunks: Buffer[] = [];
       stream.on("data", (c: Buffer) => chunks.push(c));
       stream.on("end", () => {
         const bytes = new Uint8Array(Buffer.concat(chunks));
         if (field === "pack") out.packBytes = bytes;
-        else if (field === "config") out.configBytes = bytes;
+        // Repeatable: -F config=@nexo.zip -F config=@hmcc.zip
+        else if (field === "config") out.configZips.push(bytes);
       });
     });
     bb.on("finish", () => resolve(out));

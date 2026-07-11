@@ -6,5 +6,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/core/src/types"]
 }
