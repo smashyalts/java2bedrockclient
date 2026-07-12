@@ -17,6 +17,7 @@ export function App() {
   const [attachableMaterial, setAttachableMaterial] = useState("entity_alphatest_one_sided");
   const [modernBaseItem, setModernBaseItem] = useState("minecraft:paper");
   const [maxAnimationFrames, setMaxAnimationFrames] = useState(0);
+  const [optimizePack, setOptimizePack] = useState(true);
   const [showOptions, setShowOptions] = useState(false);
   const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
   const workerRef = useRef<Remote<WorkerApi> | null>(null);
@@ -40,7 +41,7 @@ export function App() {
         const api = getWorker();
         const result = await api.convert(
           bytes,
-          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames },
+          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack },
           proxy((stage: string, done: number, total: number) => {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
@@ -51,7 +52,7 @@ export function App() {
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
-    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, configZips],
+    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, configZips],
   );
 
   return (
@@ -129,6 +130,15 @@ export function App() {
                     <option value={5}>5 frames (small pack)</option>
                     <option value={1}>1 frame (no animation, smallest)</option>
                   </select>
+                </label>
+                <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={optimizePack}
+                    onChange={(e) => setOptimizePack(e.target.checked)}
+                  />
+                  Lossless pack optimization — minify JSON + merge duplicate textures (never changes
+                  what players see)
                 </label>
                 <label style={labelStyle}>
                   Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items

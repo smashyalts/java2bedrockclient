@@ -21,6 +21,7 @@ import { fontsStage } from "./stages/fontsStage.js";
 import { paintingsStage } from "./stages/paintingsStage.js";
 import { blocksStage } from "./stages/blocksStage.js";
 import { packagingStage } from "./stages/packagingStage.js";
+import { optimizeStage } from "./stages/optimizeStage.js";
 
 export interface ConvertResult {
   /** Bedrock resource pack (.mcpack = zip). */
@@ -51,6 +52,7 @@ const STAGES: PipelineStage[] = [
   fontsStage,
   paintingsStage,
   packagingStage,
+  optimizeStage,
 ];
 
 export async function convertPack(
@@ -74,6 +76,7 @@ export async function convertPack(
     backpackItems: options?.backpackItems ?? DEFAULT_OPTIONS.backpackItems,
     furnitureItems: options?.furnitureItems ?? DEFAULT_OPTIONS.furnitureItems,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
+    optimizePack: options?.optimizePack ?? DEFAULT_OPTIONS.optimizePack,
   };
 
   const ctx: ConversionContext = {

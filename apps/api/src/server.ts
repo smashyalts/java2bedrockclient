@@ -7,7 +7,8 @@
  *         pack    (file, required)  Java resource pack zip
  *         config  (file, optional)  Oraxen/Nexo/ItemsAdder config zip
  *     Query params (both modes):
- *         packName, attachableMaterial, modernBaseItem, maxAnimationFrames
+ *         packName, attachableMaterial, modernBaseItem, maxAnimationFrames,
+ *         optimizePack (default true; "false" disables lossless minify/merge)
  *
  *   Response: application/zip containing
  *     <packName>.mcpack, geyser_mappings.json, geyser_blocks.json, report.json
@@ -56,6 +57,8 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   if (baseItem) options.modernBaseItem = baseItem;
   const maxFrames = url.searchParams.get("maxAnimationFrames");
   if (maxFrames) options.maxAnimationFrames = Number(maxFrames);
+  const optimize = url.searchParams.get("optimizePack");
+  if (optimize !== null) options.optimizePack = optimize !== "false" && optimize !== "0";
   if (configZips.length > 0) {
     const hints = parseOraxenConfigZips(configZips);
     options.baseItemHints = hints.baseItems;

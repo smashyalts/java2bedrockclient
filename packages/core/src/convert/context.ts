@@ -44,6 +44,11 @@ export interface ConvertOptions {
    * animation, default). Lower values shrink the pack for slow connections.
    */
   maxAnimationFrames: number;
+  /**
+   * Lossless output optimization (default true): minify pack JSON and merge
+   * byte-identical generated textures. Never changes what the client renders.
+   */
+  optimizePack: boolean;
 }
 
 export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
@@ -58,6 +63,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   backpackItems: [],
   furnitureItems: [],
   maxAnimationFrames: 0,
+  optimizePack: true,
 };
 
 export type ProgressCallback = (stage: string, done: number, total: number) => void;
