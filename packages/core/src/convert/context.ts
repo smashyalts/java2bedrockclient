@@ -1,6 +1,7 @@
 import type { JavaPack } from "../java/javaPack.js";
 import type { VirtualFs } from "../io/vfs.js";
 import type { ConversionReport } from "../report/report.js";
+import type { Timings } from "../report/timings.js";
 
 export interface ConvertOptions {
   /** Bedrock pack name shown in-game; defaults to Java pack description or zip name. */
@@ -82,6 +83,7 @@ export interface ConversionContext {
   bedrock: VirtualFs;
   options: ConvertOptions;
   report: ConversionReport;
+  timings: Timings;
   progress: ProgressCallback;
   /**
    * Accumulators filled by stages and flushed at packaging time:

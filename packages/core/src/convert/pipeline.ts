@@ -2,6 +2,7 @@ import { readZipDetailed, writeZip } from "../io/zip.js";
 import { VirtualFs } from "../io/vfs.js";
 import { JavaPack } from "../java/javaPack.js";
 import { ConversionReport } from "../report/report.js";
+import { Timings, beginTimings, finishTimings } from "../report/timings.js";
 import {
   DEFAULT_OPTIONS,
   type ConversionContext,
@@ -36,6 +37,8 @@ export interface ConvertResult {
    */
   displayEntityMappings: string | undefined;
   report: ReturnType<ConversionReport["toJSON"]>;
+  /** Per-stage and hot-op timing breakdown for performance analysis. */
+  timings: ReturnType<Timings["toJSON"]>;
 }
 
 /** Stages run in order; later milestones insert stages between textures and packaging. */
@@ -80,11 +83,13 @@ export async function convertPack(
     maxCompression: options?.maxCompression ?? DEFAULT_OPTIONS.maxCompression,
   };
 
+  const timings = new Timings();
   const ctx: ConversionContext = {
     java,
     bedrock: new VirtualFs(),
     options: opts,
     report: new ConversionReport(),
+    timings,
     progress: progress ?? (() => {}),
     itemTextures: new Map(),
     terrainTextures: new Map(),
@@ -100,14 +105,23 @@ export async function convertPack(
     ctx.report.error("ingest", entry.name, `could not extract from zip: ${entry.reason}`);
   }
 
-  for (const stage of STAGES) {
-    ctx.progress(stage.name, 0, 1);
-    try {
-      await stage.run(ctx);
-    } catch (err) {
-      ctx.report.error(stage.name, "(stage)", err instanceof Error ? err.message : String(err));
+  const now = (): number =>
+    typeof globalThis.performance?.now === "function" ? globalThis.performance.now() : Date.now();
+  beginTimings(timings);
+  try {
+    for (const stage of STAGES) {
+      ctx.progress(stage.name, 0, 1);
+      const start = now();
+      try {
+        await stage.run(ctx);
+      } catch (err) {
+        ctx.report.error(stage.name, "(stage)", err instanceof Error ? err.message : String(err));
+      }
+      timings.stage(stage.name, now() - start);
+      ctx.progress(stage.name, 1, 1);
     }
-    ctx.progress(stage.name, 1, 1);
+  } finally {
+    finishTimings();
   }
 
   // Anything still pending after all stages ran was not consumed by a converter.
@@ -129,8 +143,11 @@ export async function convertPack(
 
   const hasMappings = Object.keys(ctx.geyserMappings.items).length > 0;
   const hasBlocks = Object.keys(ctx.geyserBlocks).length > 0;
+  const zipStart = now();
+  const mcpack = writeZip(ctx.bedrock);
+  timings.stage("zip.write", now() - zipStart);
   return {
-    mcpack: writeZip(ctx.bedrock),
+    mcpack,
     geyserMappings: hasMappings ? JSON.stringify(ctx.geyserMappings, null, 2) : undefined,
     geyserBlockMappings: hasBlocks
       ? JSON.stringify({ format_version: 1, blocks: ctx.geyserBlocks }, null, 2)
@@ -140,6 +157,7 @@ export async function convertPack(
         ? buildDisplayEntityYaml(ctx.displayEntityMappings)
         : undefined,
     report: ctx.report.toJSON(),
+    timings: timings.toJSON(),
   };
 }
 

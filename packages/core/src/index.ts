@@ -4,5 +4,6 @@ export { VirtualFs } from "./io/vfs.js";
 export { readZip, readZipDetailed, writeZip, type ReadZipResult } from "./io/zip.js";
 export { JavaPack, parseResourceLocation } from "./java/javaPack.js";
 export { ConversionReport, type ReportEntry, type ConversionStatus } from "./report/report.js";
+export { Timings } from "./report/timings.js";
 export { deterministicUuid, buildManifest } from "./bedrock/manifest.js";
 export { parseOraxenConfigZip, parseOraxenConfigZips, type OraxenHints } from "./java/oraxen.js";

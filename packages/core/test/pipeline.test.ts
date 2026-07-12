@@ -49,6 +49,13 @@ describe("convertPack", () => {
 
     expect(result.report.summary.error).toBe(0);
     expect(result.report.summary.converted).toBeGreaterThanOrEqual(3);
+
+    // Timings are populated: every stage recorded, total is their sum.
+    expect(result.timings.stages.length).toBeGreaterThan(0);
+    expect(result.timings.stages.some((s) => s.name === "packaging")).toBe(true);
+    expect(result.timings.stages.some((s) => s.name === "zip.write")).toBe(true);
+    const sum = result.timings.stages.reduce((n, s) => n + s.ms, 0);
+    expect(result.timings.totalMs).toBe(Math.round(sum));
   });
 
   it("handles packs nested one folder deep", async () => {

@@ -1,4 +1,5 @@
 import { createImage, type RgbaImage } from "./png.js";
+import { timeOp } from "../report/timings.js";
 
 export interface AtlasPlacement {
   /** Pixel offset of this texture's tile in the atlas. */
@@ -23,6 +24,10 @@ export interface Atlas {
  * textures sit in the top-left of their tile (UVs reference original size).
  */
 export function buildAtlas(textures: Map<string, RgbaImage>): Atlas {
+  return timeOp("atlas.build", () => buildAtlasUntimed(textures));
+}
+
+function buildAtlasUntimed(textures: Map<string, RgbaImage>): Atlas {
   const ids = [...textures.keys()];
   if (ids.length === 0) throw new Error("atlas needs at least one texture");
 

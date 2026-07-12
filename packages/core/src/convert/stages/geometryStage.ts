@@ -225,15 +225,17 @@ function convertModel(
     alphaBleed(frameAtlas.image);
     if (f === 0) atlas = frameAtlas;
 
-    const png = encodePng(frameAtlas.image);
-    const hash = toHex(sha256(png));
+    // Dedup on the raw pixels *before* encoding: consecutive timeline slots
+    // often resolve to the same source frames (finer grid than frametime), and
+    // encoding dominates conversion time — skip re-encoding identical atlases.
+    const hash = toHex(sha256(frameAtlas.image.data));
     const cached = atlasCache.get(hash);
     if (cached !== undefined) {
       framePaths.push(cached);
     } else {
       const path =
         f === 0 ? `textures/geyser_custom/atlases/${name}` : `textures/geyser_custom/atlases/${name}_f${f}`;
-      ctx.bedrock.write(path + ".png", png);
+      ctx.bedrock.write(path + ".png", encodePng(frameAtlas.image));
       atlasCache.set(hash, path);
       framePaths.push(path);
     }

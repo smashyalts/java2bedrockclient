@@ -124,6 +124,8 @@ export function ResultView({
         </p>
       </div>
 
+      <PerfPanel timings={result.timings} />
+
       <div
         style={{
           background: "var(--panel)",
@@ -187,3 +189,63 @@ export function ResultView({
 
 const thStyle: React.CSSProperties = { padding: "6px 10px", position: "sticky", top: 0, background: "var(--panel)" };
 const tdStyle: React.CSSProperties = { padding: "6px 10px", verticalAlign: "top" };
+
+function fmtMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+}
+
+/** Collapsible performance breakdown: per-stage durations + hot-op costs. */
+function PerfPanel({ timings }: { timings: ConvertResult["timings"] }) {
+  const [open, setOpen] = useState(false);
+  const stages = [...timings.stages].filter((s) => s.ms > 0).sort((a, b) => b.ms - a.ms);
+  const total = timings.totalMs;
+  return (
+    <div
+      style={{
+        background: "var(--panel)",
+        border: "1px solid var(--border)",
+        borderRadius: 16,
+        padding: open ? 24 : "14px 24px",
+        marginBottom: 20,
+      }}
+    >
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{ background: "transparent", color: "var(--muted)", border: "none", cursor: "pointer", fontSize: 14, padding: 0 }}
+      >
+        {open ? "▾" : "▸"} Performance — {fmtMs(total)} total
+      </button>
+      {open && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 16, fontSize: 13 }}>
+          <div>
+            <div style={{ color: "var(--muted)", marginBottom: 8 }}>By stage</div>
+            {stages.map((s) => (
+              <PerfBar key={s.name} label={s.name} ms={s.ms} total={total} />
+            ))}
+          </div>
+          <div>
+            <div style={{ color: "var(--muted)", marginBottom: 8 }}>Hot operations</div>
+            {timings.ops.slice(0, 8).map((o) => (
+              <PerfBar key={o.category} label={`${o.category} (${o.count}×)`} ms={o.totalMs} total={total} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PerfBar({ label, ms, total }: { label: string; ms: number; total: number }) {
+  const pct = total > 0 ? Math.round((ms / total) * 100) : 0;
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ wordBreak: "break-all" }}>{label}</span>
+        <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{fmtMs(ms)} · {pct}%</span>
+      </div>
+      <div style={{ height: 4, background: "var(--bg)", borderRadius: 2, marginTop: 2 }}>
+        <div style={{ height: 4, width: `${pct}%`, background: "var(--accent)", borderRadius: 2 }} />
+      </div>
+    </div>
+  );
+}

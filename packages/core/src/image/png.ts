@@ -1,6 +1,7 @@
 import { decode } from "fast-png";
 import UPNG from "upng-js";
 import { zlibSync } from "fflate";
+import { timeOp } from "../report/timings.js";
 
 /** Always 8-bit RGBA. */
 export interface RgbaImage {
@@ -10,6 +11,10 @@ export interface RgbaImage {
 }
 
 export function decodePng(bytes: Uint8Array): RgbaImage {
+  return timeOp("png.decode", () => decodePngUntimed(bytes));
+}
+
+function decodePngUntimed(bytes: Uint8Array): RgbaImage {
   const img = decode(bytes);
   const { width, height, depth, channels } = img;
   const out = new Uint8Array(width * height * 4);
@@ -73,17 +78,19 @@ export function decodePng(bytes: Uint8Array): RgbaImage {
 }
 
 export function encodePng(image: RgbaImage): Uint8Array {
-  // UPNG lossless mode (cnum 0): scanline filtering + proper deflate — output
-  // is a fraction of a naive unfiltered RGBA encode, pixels bit-identical.
-  const buf = image.data.buffer.slice(
-    image.data.byteOffset,
-    image.data.byteOffset + image.data.byteLength,
-  ) as ArrayBuffer;
-  const rgba = new Uint8Array(UPNG.encode([buf], image.width, image.height, 0));
-  // Pixel art usually fits a palette: indexed encoding is bit-identical and
-  // much smaller. Keep whichever encode wins.
-  const indexed = encodeIndexedPng(image);
-  return indexed !== undefined && indexed.length < rgba.length ? indexed : rgba;
+  // Pixel art almost always fits a ≤256-colour palette, where an indexed PNG
+  // is both smaller and far cheaper than UPNG's filter search. Try it first
+  // and, when it fits, ship it — skipping the expensive RGBA encode entirely.
+  // Only images with >256 colours (photographic textures) fall back to UPNG.
+  const indexed = timeOp("png.encode.indexed", () => encodeIndexedPng(image));
+  if (indexed !== undefined) return indexed;
+  return timeOp("png.encode.rgba", () => {
+    const buf = image.data.buffer.slice(
+      image.data.byteOffset,
+      image.data.byteOffset + image.data.byteLength,
+    ) as ArrayBuffer;
+    return new Uint8Array(UPNG.encode([buf], image.width, image.height, 0));
+  });
 }
 
 /* ---------- Indexed (palette) PNG encoder — lossless when ≤256 colours ---------- */

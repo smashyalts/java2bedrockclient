@@ -57,4 +57,11 @@ if (result.displayEntityMappings) {
 }
 fs.writeFileSync(path.join(outdir, "report.json"), JSON.stringify(result.report, null, 2));
 console.log("summary:", JSON.stringify(result.report.summary));
+console.log(`\nperformance (total ${(result.timings.totalMs / 1000).toFixed(1)}s):`);
+for (const s of [...result.timings.stages].sort((a, b) => b.ms - a.ms).slice(0, 6)) {
+  if (s.ms > 0) console.log(`  stage ${s.name.padEnd(18)} ${(s.ms / 1000).toFixed(1)}s`);
+}
+for (const o of result.timings.ops.slice(0, 8)) {
+  console.log(`  op    ${o.category.padEnd(18)} ${(o.totalMs / 1000).toFixed(1)}s  (${o.count}×)`);
+}
 console.log("outputs written to", path.resolve(outdir));

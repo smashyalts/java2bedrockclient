@@ -1,6 +1,7 @@
 import type { JavaElement, JavaFaceName } from "../java/model.js";
 import type { JavaDisplayTransform } from "../java/model.js";
 import { createImage, type RgbaImage } from "./png.js";
+import { timeOp } from "../report/timings.js";
 
 /**
  * Tiny software renderer producing inventory icons for 3D models: orthographic
@@ -67,6 +68,15 @@ export function renderModelIcon(
   lookup: FaceTextureLookup,
   guiDisplay: JavaDisplayTransform | undefined,
   size = 64,
+): RgbaImage {
+  return timeOp("icon.render", () => renderModelIconUntimed(elements, lookup, guiDisplay, size));
+}
+
+function renderModelIconUntimed(
+  elements: JavaElement[],
+  lookup: FaceTextureLookup,
+  guiDisplay: JavaDisplayTransform | undefined,
+  size: number,
 ): RgbaImage {
   const rotationDeg = guiDisplay?.rotation ?? [30, 225, 0];
   const center: Vec3 = [8, 8, 8];
