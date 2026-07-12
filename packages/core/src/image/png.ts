@@ -1,5 +1,6 @@
 import { decode } from "fast-png";
 import UPNG from "upng-js";
+import { zlibSync } from "fflate";
 
 /** Always 8-bit RGBA. */
 export interface RgbaImage {
@@ -78,7 +79,110 @@ export function encodePng(image: RgbaImage): Uint8Array {
     image.data.byteOffset,
     image.data.byteOffset + image.data.byteLength,
   ) as ArrayBuffer;
-  return new Uint8Array(UPNG.encode([buf], image.width, image.height, 0));
+  const rgba = new Uint8Array(UPNG.encode([buf], image.width, image.height, 0));
+  // Pixel art usually fits a palette: indexed encoding is bit-identical and
+  // much smaller. Keep whichever encode wins.
+  const indexed = encodeIndexedPng(image);
+  return indexed !== undefined && indexed.length < rgba.length ? indexed : rgba;
+}
+
+/* ---------- Indexed (palette) PNG encoder — lossless when ≤256 colours ---------- */
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const out = new Uint8Array(12 + data.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+/**
+ * Encode as colour-type-3 (indexed) PNG at the smallest bit depth that fits.
+ * Palette entries with transparency sort first so tRNS truncates. Returns
+ * undefined when the image has more than 256 distinct colours.
+ */
+export function encodeIndexedPng(image: RgbaImage): Uint8Array | undefined {
+  const { width, height, data } = image;
+  const seen = new Set<number>();
+  for (let i = 0; i < data.length; i += 4) {
+    seen.add(((data[i]! << 24) | (data[i + 1]! << 16) | (data[i + 2]! << 8) | data[i + 3]!) >>> 0);
+    if (seen.size > 256) return undefined;
+  }
+  // Transparent entries first → shortest possible tRNS chunk.
+  const palette = [...seen].sort((a, b) => (a & 0xff) - (b & 0xff));
+  const indexOf = new Map<number, number>();
+  palette.forEach((c, i) => indexOf.set(c, i));
+
+  const count = palette.length;
+  const depth = count <= 2 ? 1 : count <= 4 ? 2 : count <= 16 ? 4 : 8;
+  const rowBytes = Math.ceil((width * depth) / 8);
+  // Filter 0 per scanline; palette indices carry no gradient for filters to exploit.
+  const raw = new Uint8Array((rowBytes + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (rowBytes + 1);
+    for (let x = 0; x < width; x++) {
+      const p = (y * width + x) * 4;
+      const key = ((data[p]! << 24) | (data[p + 1]! << 16) | (data[p + 2]! << 8) | data[p + 3]!) >>> 0;
+      const bitPos = x * depth;
+      raw[rowStart + 1 + (bitPos >> 3)]! |= indexOf.get(key)! << (8 - depth - (bitPos & 7));
+    }
+  }
+
+  const ihdr = new Uint8Array(13);
+  const ihdrView = new DataView(ihdr.buffer);
+  ihdrView.setUint32(0, width);
+  ihdrView.setUint32(4, height);
+  ihdr[8] = depth;
+  ihdr[9] = 3; // indexed colour
+
+  const plte = new Uint8Array(count * 3);
+  palette.forEach((c, i) => {
+    plte[i * 3] = c >>> 24;
+    plte[i * 3 + 1] = (c >>> 16) & 0xff;
+    plte[i * 3 + 2] = (c >>> 8) & 0xff;
+  });
+
+  let trnsLen = 0;
+  palette.forEach((c, i) => {
+    if ((c & 0xff) !== 255) trnsLen = i + 1;
+  });
+  const trns = new Uint8Array(trnsLen);
+  for (let i = 0; i < trnsLen; i++) trns[i] = palette[i]! & 0xff;
+
+  const chunks = [
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("PLTE", plte),
+    ...(trnsLen > 0 ? [pngChunk("tRNS", trns)] : []),
+    pngChunk("IDAT", zlibSync(raw, { level: 9 })),
+    pngChunk("IEND", new Uint8Array(0)),
+  ];
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
 }
 
 export function createImage(width: number, height: number): RgbaImage {

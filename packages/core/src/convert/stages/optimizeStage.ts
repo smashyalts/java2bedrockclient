@@ -1,5 +1,6 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { parseLenientJson } from "../../java/json.js";
+import { decodePng, encodePng } from "../../image/png.js";
 import { sha256 } from "@noble/hashes/sha2";
 
 /**
@@ -9,10 +10,14 @@ import { sha256 } from "@noble/hashes/sha2";
  *    with identical bytes collapse to one file; every JSON reference is
  *    rewritten to the surviving path. Only generated textures are merged —
  *    vanilla passthrough paths are looked up by fixed name and must stay put.
- * 2. JSON minify: every .json in the pack re-emitted without whitespace.
+ * 2. Passthrough re-encode: textures copied verbatim from the Java pack keep
+ *    whatever bloat the author's tool produced (unfiltered scanlines, text
+ *    chunks). Re-encode them (filtered RGBA or indexed palette) and keep the
+ *    smaller file — pixels stay bit-identical either way.
+ * 3. JSON minify: every .json in the pack re-emitted without whitespace.
  *
- * Both transforms are byte-lossless for the client: same pixels, same parsed
- * JSON. Disable with optimizePack: false.
+ * Every transform is lossless for the client: same pixels, same parsed JSON.
+ * Disable with optimizePack: false.
  */
 export const optimizeStage: PipelineStage = {
   name: "optimize",
@@ -40,7 +45,25 @@ export const optimizeStage: PipelineStage = {
       }
     }
 
-    // --- 2. Rewrite references + minify all JSON. ---
+    // --- 2. Re-encode passthrough textures, keep the smaller encode. ---
+    // Generated textures (geyser_custom) were born from encodePng and are
+    // already optimal; everything else came straight from the Java pack.
+    let reencoded = 0;
+    for (const path of ctx.bedrock.list({ suffix: ".png" })) {
+      if (path.startsWith("textures/geyser_custom/")) continue;
+      const bytes = ctx.bedrock.read(path)!;
+      try {
+        const smaller = encodePng(decodePng(bytes));
+        if (smaller.length < bytes.length) {
+          ctx.bedrock.write(path, smaller);
+          reencoded++;
+        }
+      } catch {
+        // Undecodable/exotic PNG — ship the original untouched.
+      }
+    }
+
+    // --- 3. Rewrite references + minify all JSON. ---
     for (const path of ctx.bedrock.list({ suffix: ".json" })) {
       const text = ctx.bedrock.readText(path);
       if (text === undefined) continue;
@@ -57,7 +80,7 @@ export const optimizeStage: PipelineStage = {
     const after = packSize(ctx);
     if (before > after) {
       ctx.report.converted("optimize", "lossless pack optimization", [
-        `${merged} duplicate texture(s) merged, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
+        `${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
       ]);
     }
   },
