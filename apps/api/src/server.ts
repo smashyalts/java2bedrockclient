@@ -62,6 +62,7 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
     options.displayNameHints = hints.displayNames;
     options.equippableHints = hints.equippables;
     options.cmdItemKeys = hints.cmdKeys;
+    options.colorHints = hints.colors;
     options.backpackItems = hints.backpacks;
     options.furnitureItems = hints.furniture;
   }

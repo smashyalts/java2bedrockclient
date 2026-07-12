@@ -18,6 +18,36 @@ function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
 }
 
 describe("2D custom items", () => {
+  it("bakes config dye colours into tinted-base-item icons", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/leather_boots.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "minecraft:item/leather_boots" },
+        overrides: [{ predicate: { custom_model_data: 1 }, model: "custom:item/red_boots" }],
+      }),
+      "assets/custom/models/item/red_boots.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/red_boots" },
+      }),
+      // White sprite → tint result equals the colour itself.
+      "assets/custom/textures/item/red_boots.png": png(16, 16, [255, 255, 255, 255]),
+    });
+
+    const result = await convertPack(zip, {
+      packName: "Tint",
+      colorHints: { red_boots: 0xff2000 },
+    });
+    const out = readZip(result.mcpack);
+    const iconPath = "textures/geyser_custom/custom_item_red_boots_ff2000.png";
+    expect(out.has(iconPath)).toBe(true);
+    // Baked, so no "cannot be applied" warning for this variant.
+    const warn = result.report.entries.find(
+      (e) => e.status === "approximated" && e.detail?.includes("tints layer0 server-side"),
+    );
+    expect(warn).toBeUndefined();
+  });
+
   it("maps legacy cast/charged/firework predicates to Geyser conditions", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

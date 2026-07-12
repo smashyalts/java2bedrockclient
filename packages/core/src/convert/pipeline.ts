@@ -10,6 +10,7 @@ import {
   type ProgressCallback,
 } from "./context.js";
 import { texturesStage } from "./stages/texturesStage.js";
+import { entityCompositesStage } from "./stages/entityCompositesStage.js";
 import { itemsStage } from "./stages/itemsStage.js";
 import { geometryStage } from "./stages/geometryStage.js";
 import { armorStage } from "./stages/armorStage.js";
@@ -39,6 +40,7 @@ export interface ConvertResult {
 /** Stages run in order; later milestones insert stages between textures and packaging. */
 const STAGES: PipelineStage[] = [
   texturesStage,
+  entityCompositesStage,
   itemsStage,
   geometryStage,
   armorStage,
@@ -68,6 +70,7 @@ export async function convertPack(
     displayNameHints: options?.displayNameHints ?? DEFAULT_OPTIONS.displayNameHints,
     equippableHints: options?.equippableHints ?? DEFAULT_OPTIONS.equippableHints,
     cmdItemKeys: options?.cmdItemKeys ?? DEFAULT_OPTIONS.cmdItemKeys,
+    colorHints: options?.colorHints ?? DEFAULT_OPTIONS.colorHints,
     backpackItems: options?.backpackItems ?? DEFAULT_OPTIONS.backpackItems,
     furnitureItems: options?.furnitureItems ?? DEFAULT_OPTIONS.furnitureItems,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,

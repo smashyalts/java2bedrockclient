@@ -95,6 +95,23 @@ paper_wings:
     expect(hints.backpacks).toContain("paper_wings"); // resolved via material+cmd
   });
 
+  it("extracts fixed dye colours (R,G,B and hex forms)", () => {
+    const YML = `
+red_cap:
+  material: LEATHER_HELMET
+  color: "255, 0, 0"
+blue_cap:
+  material: LEATHER_HELMET
+  color: "#0000FF"
+plain_cap:
+  material: LEATHER_HELMET
+`;
+    const hints = parseOraxenConfigZip(fixtureZip({ "items/caps.yml": YML }));
+    expect(hints.colors["red_cap"]).toBe(0xff0000);
+    expect(hints.colors["blue_cap"]).toBe(0x0000ff);
+    expect(hints.colors["plain_cap"]).toBeUndefined();
+  });
+
   it("detects furniture items (Oraxen Mechanics + ItemsAdder behaviours)", () => {
     const NEXO_FURNITURE_YML = `
 plushie_bear:

@@ -26,6 +26,11 @@ export interface ConvertOptions {
   equippableHints: Record<string, { asset: string; slot: string }>;
   /** "minecraft:material|cmd" → config item key (cmd-dispatched packs). */
   cmdItemKeys: Record<string, string>;
+  /**
+   * Item-model name → fixed dye colour (0xRRGGBB) from plugin configs.
+   * Baked into 2D icons of server-tinted base items (leather, potions).
+   */
+  colorHints: Record<string, number>;
   /** Item keys worn as back cosmetics (armor-stand head items) — get a head lift. */
   backpackItems: string[];
   /**
@@ -49,6 +54,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   displayNameHints: {},
   equippableHints: {},
   cmdItemKeys: {},
+  colorHints: {},
   backpackItems: [],
   furnitureItems: [],
   maxAnimationFrames: 0,

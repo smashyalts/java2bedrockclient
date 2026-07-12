@@ -6,7 +6,7 @@ import {
 } from "../../java/itemVariants.js";
 import { resolveModel, spriteLayers, type ResolvedModel } from "../../resolve/modelResolver.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
-import { alphaBleed, compositeLayers, decodePng, encodePng, firstFrame } from "../../image/png.js";
+import { alphaBleed, compositeLayers, decodePng, encodePng, firstFrame, tint } from "../../image/png.js";
 
 /** Sanitize a resource location into a safe identifier chunk. */
 export function safeName(id: string): string {
@@ -90,12 +90,22 @@ const TINTED_BASE_ITEMS = new Set([
 
 function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, resolved: ResolvedModel): void {
   const origin = `${variant.origin} → ${variant.model}`;
+  // Fixed dye colour from plugin configs — bake the server-side tint into the icon.
+  const colorHint = variant.baseItem !== undefined && TINTED_BASE_ITEMS.has(variant.baseItem)
+    ? findColorHint(ctx, variant)
+    : undefined;
   if (variant.baseItem !== undefined && TINTED_BASE_ITEMS.has(variant.baseItem)) {
-    ctx.report.approximated(
-      "items",
-      origin,
-      `${variant.baseItem} tints layer0 server-side on Java — the tint cannot be applied statically, icon may look uncoloured`,
-    );
+    if (colorHint !== undefined) {
+      ctx.report.converted("items-hints", origin, [
+        `config colour #${colorHint.toString(16).padStart(6, "0")} baked into layer0`,
+      ]);
+    } else {
+      ctx.report.approximated(
+        "items",
+        origin,
+        `${variant.baseItem} tints layer0 server-side on Java — the tint cannot be applied statically, icon may look uncoloured (add "color:" to the plugin config to bake it)`,
+      );
+    }
   }
   const layers = spriteLayers(resolved);
   if (layers.length === 0) {
@@ -104,8 +114,8 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
   }
 
   const name = safeName(variant.model);
-  const iconKey = name;
-  const outPath = `textures/geyser_custom/${name}.png`;
+  const iconKey = colorHint !== undefined ? `${name}_${colorHint.toString(16)}` : name;
+  const outPath = `textures/geyser_custom/${iconKey}.png`;
 
   if (!ctx.itemTextures.has(iconKey)) {
     const images = [];
@@ -129,13 +139,17 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
       ctx.report.skipped("items", origin, "no layer textures found in pack");
       return;
     }
+    // Java tints layer0 only; overlay layers stay uncoloured.
+    if (colorHint !== undefined && images.length > 0) {
+      tint(images[0]!, colorHint);
+    }
     // Alpha-bleed so bilinear filtering doesn't fringe black at sprite edges.
     // (No padding: Bedrock stretches icons to the slot, and padding shrinks
     // the visible art — a 16x17 sprite would render at half size.)
     const icon = compositeLayers(images);
     alphaBleed(icon);
     ctx.bedrock.write(outPath, encodePng(icon));
-    ctx.itemTextures.set(iconKey, { textures: `textures/geyser_custom/${name}` });
+    ctx.itemTextures.set(iconKey, { textures: `textures/geyser_custom/${iconKey}` });
   }
 
   const definition = buildDefinition(ctx, variant, {
@@ -239,6 +253,27 @@ export function buildDefinition(
 
   (ctx.geyserMappings.items[baseItem] ??= []).push(definition);
   return definition;
+}
+
+/** Fixed dye colour hint for the variant (config key via cmd, item-model name, model name). */
+function findColorHint(ctx: ConversionContext, variant: ItemVariant): number | undefined {
+  const keys: string[] = [];
+  const cmd =
+    variant.source.kind === "legacy"
+      ? variant.source.customModelData
+      : variant.predicates.find(
+          (p): p is Extract<typeof p, { type: "range_dispatch" }> =>
+            p.type === "range_dispatch" && p.property === "custom_model_data",
+        )?.threshold;
+  if (variant.baseItem !== undefined && cmd !== undefined) {
+    const configKey = ctx.options.cmdItemKeys[`${variant.baseItem}|${cmd}`];
+    if (configKey !== undefined) keys.push(configKey);
+  }
+  if (variant.source.kind === "modern") {
+    keys.push(parseResourceLocation(variant.source.itemModelId).path.toLowerCase());
+  }
+  keys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
+  return keys.map((k) => ctx.options.colorHints[k]).find((v) => v !== undefined);
 }
 
 /** Host item: pack-declared → config hints → configurable fallback. */

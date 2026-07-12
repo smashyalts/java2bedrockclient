@@ -28,6 +28,7 @@ const api: WorkerApi = {
         displayNameHints: hints.displayNames,
         equippableHints: hints.equippables,
         cmdItemKeys: hints.cmdKeys,
+        colorHints: hints.colors,
         backpackItems: hints.backpacks,
         furnitureItems: hints.furniture,
       };

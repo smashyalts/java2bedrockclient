@@ -84,6 +84,44 @@ describe("flipbook item animation", () => {
     expect(entry!.outputs!.some((o) => o.includes("animated: 4 frames"))).toBe(true);
   });
 
+  it("blends interpolated animations on a 1-tick grid", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/stick.json": JSON.stringify({
+        parent: "minecraft:item/handheld",
+        textures: { layer0: "minecraft:item/stick" },
+        overrides: [{ predicate: { custom_model_data: 1 }, model: "custom:item/lerp_wand" }],
+      }),
+      "assets/custom/models/item/lerp_wand.json": JSON.stringify({
+        textures: { body: "custom:item/lerp_body" },
+        elements: MODEL.elements,
+      }),
+      "assets/custom/textures/item/lerp_body.png": strip(2),
+      "assets/custom/textures/item/lerp_body.png.mcmeta": JSON.stringify({
+        animation: { frametime: 2, interpolate: true },
+      }),
+    });
+
+    const result = await convertPack(zip, { packName: "Lerp" });
+    // 2 frames × 2 ticks resampled per-tick → 4 timeline frames @ 20 fps.
+    const entry = result.report.entries.find(
+      (e) => e.stage === "items-3d" && e.source === "custom:item/lerp_wand",
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.outputs!.some((o) => o.includes("animated: 4 frames @ 20.0 fps"))).toBe(true);
+
+    const out = readZip(result.mcpack);
+    // Blended intermediates exist; the two halfway blends are identical, so
+    // frame 3 dedupes onto frame 1's atlas.
+    expect(out.has("textures/geyser_custom/atlases/custom_item_lerp_wand_f1.png")).toBe(true);
+    expect(out.has("textures/geyser_custom/atlases/custom_item_lerp_wand_f2.png")).toBe(true);
+    expect(out.has("textures/geyser_custom/atlases/custom_item_lerp_wand_f3.png")).toBe(false);
+    const attachable = JSON.parse(out.readText("attachables/geyser_custom/custom_item_lerp_wand.json")!);
+    expect(attachable["minecraft:attachable"].description.textures.frame3).toBe(
+      "textures/geyser_custom/atlases/custom_item_lerp_wand_f1",
+    );
+  });
+
   it("plays multi-strip items at correct per-texture speeds (no 2x bug)", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

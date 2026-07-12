@@ -42,8 +42,19 @@ interface LoadedTexture {
 interface McmetaAnimation {
   animation?: {
     frametime?: number;
+    interpolate?: boolean;
     frames?: (number | { index: number; time?: number })[];
   };
+}
+
+/** Linear blend of two same-size images (t=0 → a, t=1 → b), as Java's interpolate does. */
+function blendImages(a: RgbaImage, b: RgbaImage, t: number): RgbaImage {
+  const out = new Uint8Array(a.data.length);
+  const bd = b.data.length === a.data.length ? b.data : a.data;
+  for (let i = 0; i < a.data.length; i++) {
+    out[i] = Math.round(a.data[i]! + (bd[i]! - a.data[i]!) * t);
+  }
+  return { width: a.width, height: a.height, data: out };
 }
 
 function gcd(a: number, b: number): number {
@@ -85,6 +96,22 @@ function loadTexture(ctx: ConversionContext, textureId: string): LoadedTexture |
     return { index: f.index, ticks: Math.max(1, f.time ?? baseTime) };
   });
   if (entries.length === 0) return { frames: strip, frametime: baseTime };
+
+  // Interpolated animation: Java cross-fades between frames every tick, so
+  // resample the whole cycle on a 1-tick grid with per-tick blends. (Frame
+  // dedupe + the frame-cap option keep pack size in check.)
+  if (meta.animation.interpolate === true) {
+    const frames: RgbaImage[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      const cur = strip[Math.min(entries[i]!.index, strip.length - 1)]!;
+      const next = strip[Math.min(entries[(i + 1) % entries.length]!.index, strip.length - 1)]!;
+      for (let s = 0; s < entries[i]!.ticks; s++) {
+        const t = s / entries[i]!.ticks;
+        frames.push(t === 0 ? cur : blendImages(cur, next, t));
+      }
+    }
+    return { frames, frametime: 1 };
+  }
 
   // Uniform tick grid: gcd of all durations; repeat frames to their length.
   const unit = entries.reduce((acc, e) => gcd(acc, e.ticks), entries[0]!.ticks);

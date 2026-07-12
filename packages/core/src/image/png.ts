@@ -211,6 +211,59 @@ export function alphaBleed(image: RgbaImage): void {
   }
 }
 
+/** Copy a rectangular region out of an image. */
+export function crop(image: RgbaImage, x: number, y: number, w: number, h: number): RgbaImage {
+  const out = createImage(w, h);
+  for (let row = 0; row < h; row++) {
+    const srcY = y + row;
+    if (srcY < 0 || srcY >= image.height) continue;
+    for (let col = 0; col < w; col++) {
+      const srcX = x + col;
+      if (srcX < 0 || srcX >= image.width) continue;
+      const si = (srcY * image.width + srcX) * 4;
+      const di = (row * w + col) * 4;
+      out.data.set(image.data.subarray(si, si + 4), di);
+    }
+  }
+  return out;
+}
+
+/** Rotate an image 180°. */
+export function rotate180(image: RgbaImage): RgbaImage {
+  const out = createImage(image.width, image.height);
+  const n = image.width * image.height;
+  for (let i = 0; i < n; i++) {
+    out.data.set(image.data.subarray(i * 4, i * 4 + 4), (n - 1 - i) * 4);
+  }
+  return out;
+}
+
+/** Flip an image vertically (top ↔ bottom). */
+export function flipVertical(image: RgbaImage): RgbaImage {
+  const out = createImage(image.width, image.height);
+  const rowBytes = image.width * 4;
+  for (let y = 0; y < image.height; y++) {
+    out.data.set(
+      image.data.subarray(y * rowBytes, (y + 1) * rowBytes),
+      (image.height - 1 - y) * rowBytes,
+    );
+  }
+  return out;
+}
+
+/** Paste src into dst at (x, y), overwriting pixels (no blending). */
+export function blit(dst: RgbaImage, src: RgbaImage, x: number, y: number): void {
+  for (let row = 0; row < src.height; row++) {
+    const dy = y + row;
+    if (dy < 0 || dy >= dst.height) continue;
+    for (let col = 0; col < src.width; col++) {
+      const dx = x + col;
+      if (dx < 0 || dx >= dst.width) continue;
+      dst.data.set(src.data.subarray((row * src.width + col) * 4, (row * src.width + col) * 4 + 4), (dy * dst.width + dx) * 4);
+    }
+  }
+}
+
 /** Composite sprite layers bottom-first into one image, scaling to the largest layer. */
 export function compositeLayers(layers: RgbaImage[]): RgbaImage {
   if (layers.length === 0) throw new Error("no layers to composite");

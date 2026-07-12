@@ -25,6 +25,7 @@ let baseItemHints: Record<string, string> | undefined;
 let displayNameHints: Record<string, string> | undefined;
 let equippableHints: Record<string, { asset: string; slot: string }> | undefined;
 let cmdItemKeys: Record<string, string> | undefined;
+let colorHints: Record<string, number> | undefined;
 let backpackItems: string[] | undefined;
 let furnitureItems: string[] | undefined;
 if (configZipPaths.length > 0) {
@@ -34,6 +35,7 @@ if (configZipPaths.length > 0) {
   displayNameHints = hints.displayNames;
   equippableHints = hints.equippables;
   cmdItemKeys = hints.cmdKeys;
+  colorHints = hints.colors;
   backpackItems = hints.backpacks;
   furnitureItems = hints.furniture;
   if (hints.backpacks.length > 0) console.log(`backpack cosmetics: ${hints.backpacks.join(", ")}`);
@@ -41,7 +43,7 @@ if (configZipPaths.length > 0) {
 }
 
 const packName = path.basename(input).replace(/\.(zip|mcpack)$/i, "");
-const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys, backpackItems, furnitureItems });
+const result = await convertPack(bytes, { packName, baseItemHints, displayNameHints, equippableHints, cmdItemKeys, colorHints, backpackItems, furnitureItems });
 fs.mkdirSync(outdir, { recursive: true });
 fs.writeFileSync(path.join(outdir, packName + ".mcpack"), result.mcpack);
 if (result.geyserMappings) {

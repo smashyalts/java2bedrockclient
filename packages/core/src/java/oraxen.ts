@@ -31,6 +31,11 @@ export interface OraxenHints {
   displayNames: Record<string, string>;
   /** item key → equippable armor link from the config. */
   equippables: Record<string, { asset: string; slot: string }>;
+  /**
+   * item key → fixed dye colour (0xRRGGBB) from the config (leather armor,
+   * potions). Java applies it server-side; Bedrock icons need it baked in.
+   */
+  colors: Record<string, number>;
   /** "minecraft:material|cmd" → item key (for packs dispatching on custom_model_data). */
   cmdKeys: Record<string, string>;
   /**
@@ -64,6 +69,7 @@ export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
     baseItems: {},
     displayNames: {},
     equippables: {},
+    colors: {},
     cmdKeys: {},
     backpacks: [],
     furniture: [],
@@ -115,6 +121,8 @@ function parseOne(
       if (displayName !== undefined) hints.displayNames[lowerKey] = displayName;
       const equippable = extractEquippable(value);
       if (equippable !== undefined) hints.equippables[lowerKey] = equippable;
+      const color = extractColor(value);
+      if (color !== undefined) hints.colors[lowerKey] = color;
       const cmd = extractCmd(value);
       if (cmd !== undefined) {
         hints.cmdKeys[`${base}|${cmd}`] = lowerKey;
@@ -130,6 +138,7 @@ function parseOne(
         hints.baseItems[alias] = base;
         if (displayName !== undefined) hints.displayNames[alias] = displayName;
         if (isFurniture) furnitureSet.add(alias);
+        if (color !== undefined) hints.colors[alias] = color;
       }
     };
 
@@ -221,6 +230,33 @@ function extractModelAliases(item: unknown): string[] {
 function stripNamespace(id: string): string {
   const idx = id.indexOf(":");
   return (idx === -1 ? id : id.slice(idx + 1)).toLowerCase();
+}
+
+/**
+ * Fixed dye colour: Oraxen/Nexo top-level `color` ("R,G,B" or "#RRGGBB"),
+ * or Components.dyed_color. Returns 0xRRGGBB.
+ */
+function extractColor(item: unknown): number | undefined {
+  if (item === null || typeof item !== "object") return undefined;
+  const obj = item as Record<string, unknown>;
+  let raw: unknown = obj["color"];
+  if (raw === undefined) {
+    const components = obj["Components"];
+    if (components !== null && typeof components === "object") {
+      raw = (components as Record<string, unknown>)["dyed_color"];
+    }
+  }
+  if (typeof raw === "number" && Number.isInteger(raw)) return raw & 0xffffff;
+  if (typeof raw !== "string") return undefined;
+  const text = raw.trim();
+  const hex = text.match(/^#?([0-9a-fA-F]{6})$/);
+  if (hex) return parseInt(hex[1]!, 16);
+  const rgb = text.match(/^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/);
+  if (rgb) {
+    const [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+    if (r <= 255 && g <= 255 && b <= 255) return (r << 16) | (g << 8) | b;
+  }
+  return undefined;
 }
 
 /** Oraxen/Nexo Mechanics.furniture, ItemsAdder behaviours.furniture — world-placed display-entity items. */
