@@ -4,9 +4,12 @@
  * render) report into a module-global sink so pure helpers don't have to
  * thread a context through every call.
  *
- * The sink is safe because a conversion runs to completion synchronously on a
- * single event loop before the next begins (web worker: one at a time; API:
- * awaits each convertPack). `begin()`/`finish()` bracket one conversion.
+ * Per-stage timing is always exact (measured in the pipeline loop). The hot-op
+ * sink assumes a single conversion in flight: it is accurate for the web worker
+ * and CLI (one at a time). If a host runs several convertPack calls that
+ * overlap at await points (e.g. concurrent API requests), hot-op costs may be
+ * misattributed between them — output is never affected, only these metrics.
+ * `begin()`/`finish()` bracket one conversion.
  */
 
 const now = (): number =>
