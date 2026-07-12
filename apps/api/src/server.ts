@@ -9,6 +9,7 @@
  *     Query params (both modes):
  *         packName, attachableMaterial, modernBaseItem, maxAnimationFrames,
  *         optimizePack (default true; "false" disables lossless minify/merge)
+ *         maxCompression (default false; "true" runs the slow zopfli PNG pass)
  *
  *   Response: application/zip containing
  *     <packName>.mcpack, geyser_mappings.json, geyser_blocks.json, report.json
@@ -59,6 +60,8 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   if (maxFrames) options.maxAnimationFrames = Number(maxFrames);
   const optimize = url.searchParams.get("optimizePack");
   if (optimize !== null) options.optimizePack = optimize !== "false" && optimize !== "0";
+  const maxComp = url.searchParams.get("maxCompression");
+  if (maxComp !== null) options.maxCompression = maxComp === "true" || maxComp === "1";
   if (configZips.length > 0) {
     const hints = parseOraxenConfigZips(configZips);
     options.baseItemHints = hints.baseItems;

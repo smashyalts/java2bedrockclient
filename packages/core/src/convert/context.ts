@@ -49,6 +49,12 @@ export interface ConvertOptions {
    * byte-identical generated textures. Never changes what the client renders.
    */
   optimizePack: boolean;
+  /**
+   * Opt-in zopfli recompression of large PNGs (default false). Squeezes ~12%
+   * more off big textures but is very slow (single-threaded wasm, ~0.7s per
+   * file) — minutes on a large pack. The default lossless wins run regardless.
+   */
+  maxCompression: boolean;
 }
 
 export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
@@ -64,6 +70,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   furnitureItems: [],
   maxAnimationFrames: 0,
   optimizePack: true,
+  maxCompression: false,
 };
 
 export type ProgressCallback = (stage: string, done: number, total: number) => void;

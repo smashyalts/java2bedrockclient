@@ -242,11 +242,16 @@ export function buildDefinition(
   if (ctx.options.furnitureItems.length > 0) {
     const furnitureKey = nameKeys.find((k) => ctx.options.furnitureItems.includes(k));
     if (furnitureKey !== undefined) {
+      // Prefer GeyserDisplayEntity's legacy match (model-data) whenever the
+      // furniture item is custom_model_data-dispatched — legacy or modern.
+      // It matches the placed item's cmd directly instead of relying on
+      // Geyser having already translated it to the custom bedrock item, which
+      // hide-unmapped-vanilla-displays would otherwise hide.
       ctx.displayEntityMappings.push({
         key: identifierName,
         type: baseItem,
         identifier: identifierName,
-        ...(variant.source.kind === "legacy" ? { modelData: variant.source.customModelData } : {}),
+        ...(cmdValue !== undefined ? { modelData: cmdValue } : {}),
       });
     }
   }

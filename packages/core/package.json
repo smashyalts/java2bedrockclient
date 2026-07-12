@@ -14,6 +14,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@gfx/zopfli": "^1.0.15",
     "@noble/hashes": "^1.5.0",
     "fast-png": "^6.2.0",
     "fflate": "^0.8.2",

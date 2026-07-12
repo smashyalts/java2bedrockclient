@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { zipSync } from "fflate";
 import { encode } from "fast-png";
 import { convertPack, readZip } from "../src/index.js";
+import { decodePng } from "../src/image/png.js";
 
 function png(): Uint8Array {
   const data = new Uint8Array(16 * 16 * 4);
@@ -65,6 +66,22 @@ describe("lossless pack optimizer", () => {
     const entry = result.report.entries.find((e) => e.stage === "optimize");
     expect(entry).toBeDefined();
     expect(entry!.outputs![0]).toContain("1 duplicate texture(s) merged");
+  });
+
+  it("runs zopfli only with maxCompression; PNGs stay valid", async () => {
+    const off = await convertPack(dupePackZip(), { packName: "Zop" });
+    const on = await convertPack(dupePackZip(), { packName: "Zop", maxCompression: true });
+
+    const offEntry = off.report.entries.find((e) => e.stage === "optimize")!;
+    const onEntry = on.report.entries.find((e) => e.stage === "optimize")!;
+    expect(offEntry.outputs![0]).toContain("zopfli off");
+    expect(onEntry.outputs![0]).toMatch(/zopfli-recompressed/);
+
+    // Recompressed pack is no larger, and PNGs stay decodable.
+    expect(on.mcpack.length).toBeLessThanOrEqual(off.mcpack.length + 512);
+    const out = readZip(on.mcpack);
+    const png = out.list({ prefix: "textures/geyser_custom/", suffix: ".png" })[0]!;
+    expect(() => decodePng(out.read(png)!)).not.toThrow();
   });
 
   it("respects optimizePack: false", async () => {

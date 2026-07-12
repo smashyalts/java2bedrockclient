@@ -18,6 +18,7 @@ export function App() {
   const [modernBaseItem, setModernBaseItem] = useState("minecraft:paper");
   const [maxAnimationFrames, setMaxAnimationFrames] = useState(0);
   const [optimizePack, setOptimizePack] = useState(true);
+  const [maxCompression, setMaxCompression] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
   const workerRef = useRef<Remote<WorkerApi> | null>(null);
@@ -41,7 +42,7 @@ export function App() {
         const api = getWorker();
         const result = await api.convert(
           bytes,
-          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack },
+          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression },
           proxy((stage: string, done: number, total: number) => {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
@@ -52,7 +53,7 @@ export function App() {
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
-    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, configZips],
+    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, configZips],
   );
 
   return (
@@ -140,6 +141,17 @@ export function App() {
                   Lossless pack optimization — minify JSON + merge duplicate textures (never changes
                   what players see)
                 </label>
+                {optimizePack && (
+                  <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={maxCompression}
+                      onChange={(e) => setMaxCompression(e.target.checked)}
+                    />
+                    Maximum compression (very slow) — zopfli-recompress large textures for ~12% more
+                    off them. Adds minutes on big packs; leave off unless every KB matters.
+                  </label>
+                )}
                 <label style={labelStyle}>
                   Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items
                   and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}

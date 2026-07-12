@@ -77,6 +77,7 @@ export async function convertPack(
     furnitureItems: options?.furnitureItems ?? DEFAULT_OPTIONS.furnitureItems,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
     optimizePack: options?.optimizePack ?? DEFAULT_OPTIONS.optimizePack,
+    maxCompression: options?.maxCompression ?? DEFAULT_OPTIONS.maxCompression,
   };
 
   const ctx: ConversionContext = {

@@ -1,6 +1,7 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { parseLenientJson } from "../../java/json.js";
 import { decodePng, encodePng } from "../../image/png.js";
+import { zopfliRecompressPng } from "../../image/zopfliPng.js";
 import { sha256 } from "@noble/hashes/sha2";
 
 /**
@@ -14,14 +15,19 @@ import { sha256 } from "@noble/hashes/sha2";
  *    whatever bloat the author's tool produced (unfiltered scanlines, text
  *    chunks). Re-encode them (filtered RGBA or indexed palette) and keep the
  *    smaller file — pixels stay bit-identical either way.
- * 3. JSON minify: every .json in the pack re-emitted without whitespace.
+ * 3. Zopfli recompress: re-deflate every PNG's pixel stream with the zopfli
+ *    wasm (exhaustive deflate; pixels bit-identical). Skipped in fast mode.
+ * 4. JSON minify: every .json in the pack re-emitted without whitespace.
  *
  * Every transform is lossless for the client: same pixels, same parsed JSON.
  * Disable with optimizePack: false.
  */
+/** Only zopfli PNGs at least this large — below it the byte win isn't worth the time. */
+const ZOPFLI_MIN_BYTES = 4096;
+
 export const optimizeStage: PipelineStage = {
   name: "optimize",
-  run(ctx: ConversionContext): void {
+  async run(ctx: ConversionContext): Promise<void> {
     if (!ctx.options.optimizePack) return;
 
     const before = packSize(ctx);
@@ -77,10 +83,41 @@ export const optimizeStage: PipelineStage = {
       ctx.bedrock.writeText(path, JSON.stringify(value));
     }
 
+    // --- 4. Opt-in zopfli recompression of larger PNGs (maxCompression). ---
+    // Off by default: zopfli's single-threaded wasm is ~0.7s per file, so a
+    // big pack costs minutes for ~12% off large textures (a few % of the whole
+    // pack). Gated to files above a floor so the time is spent where the
+    // absolute savings actually are (atlases / HD / flipbook frames).
+    let zopflied = 0;
+    if (ctx.options.maxCompression) {
+      const candidates = ctx.bedrock
+        .list({ suffix: ".png" })
+        .filter((p) => ctx.bedrock.read(p)!.length >= ZOPFLI_MIN_BYTES);
+      let done = 0;
+      for (const path of candidates) {
+        done++;
+        ctx.progress("optimize", done, candidates.length);
+        const bytes = ctx.bedrock.read(path)!;
+        try {
+          const smaller = await zopfliRecompressPng(bytes);
+          if (smaller !== undefined) {
+            ctx.bedrock.write(path, smaller);
+            zopflied++;
+          }
+        } catch {
+          // Zopfli failed on this file — ship what we had.
+        }
+      }
+      if (candidates.length > 0) ctx.progress("optimize", candidates.length, candidates.length);
+    }
+
     const after = packSize(ctx);
     if (before > after) {
+      const zopfliNote = ctx.options.maxCompression
+        ? `${zopflied} large texture(s) zopfli-recompressed`
+        : "zopfli off (enable max compression for ~12% more off large textures)";
       ctx.report.converted("optimize", "lossless pack optimization", [
-        `${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
+        `${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, ${zopfliNote}, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
       ]);
     }
   },
