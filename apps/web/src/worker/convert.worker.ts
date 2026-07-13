@@ -6,6 +6,7 @@ import {
   type ConvertOptions,
   type ConvertResult,
 } from "@geyser-converter/core";
+import { createZopfliPool, poolSize } from "./zopfliPool.js";
 
 export interface WorkerApi {
   convert(
@@ -34,10 +35,18 @@ const api: WorkerApi = {
       };
       hintCount = hints.items;
     }
-    const result = await convertPack(zipBytes, options, (stage, done, total) => {
-      onProgress(stage, done, total);
-    });
-    return { ...result, hintCount };
+    // Parallelize the slow zopfli max-compression pass across a worker pool so
+    // it finishes in ~1/cores of the single-threaded time.
+    const pool = options.maxCompression ? createZopfliPool(poolSize()) : undefined;
+    if (pool !== undefined) options = { ...options, recompressor: pool };
+    try {
+      const result = await convertPack(zipBytes, options, (stage, done, total) => {
+        onProgress(stage, done, total);
+      });
+      return { ...result, hintCount };
+    } finally {
+      pool?.dispose();
+    }
   },
 };
 

@@ -90,22 +90,36 @@ export const optimizeStage: PipelineStage = {
     // absolute savings actually are (atlases / HD / flipbook frames).
     let zopflied = 0;
     if (ctx.options.maxCompression) {
-      const candidates = ctx.bedrock
-        .list({ suffix: ".png" })
-        .filter((p) => ctx.bedrock.read(p)!.length >= ZOPFLI_MIN_BYTES);
-      let done = 0;
-      for (const path of candidates) {
-        done++;
-        ctx.progress("optimize", done, candidates.length);
+      const candidates: { path: string; bytes: Uint8Array }[] = [];
+      for (const path of ctx.bedrock.list({ suffix: ".png" })) {
         const bytes = ctx.bedrock.read(path)!;
-        try {
-          const smaller = await zopfliRecompressPng(bytes);
-          if (smaller !== undefined) {
-            ctx.bedrock.write(path, smaller);
-            zopflied++;
+        if (bytes.length >= ZOPFLI_MIN_BYTES) candidates.push({ path, bytes });
+      }
+      const apply = (i: number, smaller: Uint8Array | undefined): void => {
+        if (smaller !== undefined) {
+          ctx.bedrock.write(candidates[i]!.path, smaller);
+          zopflied++;
+        }
+      };
+      const pool = ctx.options.recompressor;
+      if (pool !== undefined) {
+        // Parallel across a worker pool (browser): dispatch every candidate,
+        // the pool distributes them over N cores.
+        const results = await pool.run(
+          candidates.map((c) => c.bytes),
+          (done, total) => ctx.progress("optimize", done, total),
+        );
+        results.forEach((r, i) => apply(i, r));
+      } else {
+        // In-process sequential fallback (node CLI/API).
+        let done = 0;
+        for (let i = 0; i < candidates.length; i++) {
+          ctx.progress("optimize", ++done, candidates.length);
+          try {
+            apply(i, await zopfliRecompressPng(candidates[i]!.bytes));
+          } catch {
+            // Zopfli failed on this file — ship what we had.
           }
-        } catch {
-          // Zopfli failed on this file — ship what we had.
         }
       }
       if (candidates.length > 0) ctx.progress("optimize", candidates.length, candidates.length);
@@ -113,9 +127,11 @@ export const optimizeStage: PipelineStage = {
 
     const after = packSize(ctx);
     if (before > after) {
-      const zopfliNote = ctx.options.maxCompression
-        ? `${zopflied} large texture(s) zopfli-recompressed`
-        : "zopfli off (enable max compression for ~12% more off large textures)";
+      const zopfliNote = !ctx.options.maxCompression
+        ? "zopfli off (enable max compression for ~12% more off large textures)"
+        : zopflied === 0 && ctx.options.recompressor !== undefined
+          ? "0 zopfli-recompressed — this browser could not run the zopfli wasm; use the CLI/API for guaranteed max compression"
+          : `${zopflied} large texture(s) zopfli-recompressed`;
       ctx.report.converted("optimize", "lossless pack optimization", [
         `${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, ${zopfliNote}, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
       ]);

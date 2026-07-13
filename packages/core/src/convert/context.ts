@@ -56,6 +56,24 @@ export interface ConvertOptions {
    * file) — minutes on a large pack. The default lossless wins run regardless.
    */
   maxCompression: boolean;
+  /**
+   * Optional parallel PNG recompressor for the maxCompression pass — the web
+   * build injects a Web Worker pool so zopfli runs across all cores. When
+   * absent (node CLI/API) the pass falls back to in-process sequential zopfli.
+   */
+  recompressor?: PngRecompressor;
+}
+
+/** A batch PNG recompressor; implemented in the web app as a worker pool. */
+export interface PngRecompressor {
+  /**
+   * Recompress each PNG losslessly (pixels unchanged). Returns a smaller
+   * encoding per input, or undefined where nothing shrank. May run in parallel.
+   */
+  run(
+    pngs: Uint8Array[],
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<(Uint8Array | undefined)[]>;
 }
 
 export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {

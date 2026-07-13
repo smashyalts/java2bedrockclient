@@ -81,6 +81,7 @@ export async function convertPack(
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
     optimizePack: options?.optimizePack ?? DEFAULT_OPTIONS.optimizePack,
     maxCompression: options?.maxCompression ?? DEFAULT_OPTIONS.maxCompression,
+    recompressor: options?.recompressor,
   };
 
   const timings = new Timings();

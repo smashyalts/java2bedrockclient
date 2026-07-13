@@ -173,7 +173,9 @@ export function ResultView({
                   </td>
                   <td style={tdStyle}>{e.stage}</td>
                   <td style={{ ...tdStyle, wordBreak: "break-all" }}>{e.source}</td>
-                  <td style={{ ...tdStyle, color: "var(--muted)" }}>{e.detail ?? ""}</td>
+                  <td style={{ ...tdStyle, color: "var(--muted)" }}>
+                    {e.detail ?? (e.outputs && e.outputs.length > 0 ? e.outputs.join("; ") : "")}
+                  </td>
                 </tr>
               ))}
             </tbody>
