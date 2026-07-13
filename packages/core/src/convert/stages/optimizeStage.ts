@@ -135,7 +135,8 @@ function hex(bytes: Uint8Array): string {
 
 function packSize(ctx: ConversionContext): number {
   let total = 0;
-  for (const path of ctx.bedrock.list()) total += ctx.bedrock.read(path)!.length;
+  // Iterate the entries directly — no need to build+sort a path list just to sum lengths.
+  for (const [, data] of ctx.bedrock.entries()) total += data.length;
   return total;
 }
 

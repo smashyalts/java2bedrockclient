@@ -12,8 +12,11 @@
  * `begin()`/`finish()` bracket one conversion.
  */
 
-const now = (): number =>
-  typeof globalThis.performance?.now === "function" ? globalThis.performance.now() : Date.now();
+// Resolve the clock once — timeOp runs thousands of times per conversion.
+const now: () => number =
+  typeof globalThis.performance?.now === "function"
+    ? () => globalThis.performance.now()
+    : () => Date.now();
 
 export interface OpStat {
   count: number;
