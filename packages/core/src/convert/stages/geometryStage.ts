@@ -5,7 +5,7 @@ import { buildDisplayAnimations } from "../../bedrock/animations.js";
 import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
 import { parseLenientJson } from "../../java/json.js";
 import { alphaBleed, decodePng, encodePng, type RgbaImage } from "../../image/png.js";
-import { sha256 } from "@noble/hashes/sha2";
+import { timeOp } from "../../report/timings.js";
 import { renderModelIcon } from "../../image/modelRender.js";
 import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
@@ -26,10 +26,21 @@ function missingTexture(): RgbaImage {
   return { width: 2, height: 2, data };
 }
 
-function toHex(bytes: Uint8Array): string {
-  let out = "";
-  for (const b of bytes) out += b.toString(16).padStart(2, "0");
-  return out;
+/**
+ * Fast content hash for atlas dedup keys. Two independent FNV-1a lanes give a
+ * 64-bit digest — collision odds across a pack's frames are ~1e-12, so we skip
+ * a cryptographic hash (sha256 here cost ~12s on a large pack). Dedup only
+ * needs "same pixels → same key", not tamper resistance.
+ */
+function fastHash(data: Uint8Array): string {
+  let h1 = 0x811c9dc5 ^ data.length;
+  let h2 = 0xc2b2ae35 ^ data.length;
+  for (let i = 0; i < data.length; i++) {
+    const b = data[i]!;
+    h1 = Math.imul(h1 ^ b, 0x01000193);
+    h2 = Math.imul(h2 ^ b, 0x85ebca77);
+  }
+  return (h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0");
 }
 
 interface LoadedTexture {
@@ -139,8 +150,9 @@ export const geometryStage: PipelineStage = {
     }
     ctx.pendingGeometry.length = 0;
 
-    // Content-hash cache for atlas PNGs: items sharing texture sets (bow_0/1/2
-    // charge variants) and repeated animation frames reuse one file.
+    // Global content cache (fast FNV of atlas pixels): dedups identical atlas
+    // frames across the whole pack — repeated animation frames and shared
+    // texture sets (bow_0/1/2 charge variants) reuse one PNG.
     const atlasCache = new Map<string, string>();
 
     let done = 0;
@@ -212,31 +224,47 @@ function convertModel(
 
   const framePaths: string[] = [];
   let atlas!: ReturnType<typeof buildAtlas>;
+  // Two-level dedup, cheapest first:
+  //  1. selection key (which source frame each texture sits on) — a perfect
+  //     within-model key, so consecutive timeline slots that resolve to the
+  //     same selection skip the stitch + alpha-bleed + encode entirely;
+  //  2. content hash of the stitched pixels — catches distinct selections that
+  //     still render identical atlases (repeated/interpolated source frames)
+  //     and duplicates across models, skipping the encode.
+  const selectionCache = new Map<string, string>();
   for (let f = 0; f < timelineFrames; f++) {
     // Real time (ticks) this timeline slot represents.
     const ticks = (f * durationTicks) / timelineFrames;
     // Same insertion order every frame → identical atlas placements.
     const frameImages = new Map<string, RgbaImage>();
+    const selection: string[] = [];
     for (const [id, tex] of loaded) {
       const idx = Math.floor(ticks / tex.frametime) % tex.frames.length;
       frameImages.set(id, tex.frames[idx]!);
+      selection.push(`${id}:${idx}`);
     }
+    const selKey = selection.join("|");
+    const bySelection = f === 0 ? undefined : selectionCache.get(selKey);
+    if (bySelection !== undefined) {
+      framePaths.push(bySelection);
+      continue;
+    }
+
     const frameAtlas = buildAtlas(frameImages);
     alphaBleed(frameAtlas.image);
     if (f === 0) atlas = frameAtlas;
 
-    // Dedup on the raw pixels *before* encoding: consecutive timeline slots
-    // often resolve to the same source frames (finer grid than frametime), and
-    // encoding dominates conversion time — skip re-encoding identical atlases.
-    const hash = toHex(sha256(frameAtlas.image.data));
-    const cached = atlasCache.get(hash);
-    if (cached !== undefined) {
-      framePaths.push(cached);
+    const hash = timeOp("atlas.hash", () => fastHash(frameAtlas.image.data));
+    const byContent = atlasCache.get(hash);
+    if (byContent !== undefined) {
+      selectionCache.set(selKey, byContent);
+      framePaths.push(byContent);
     } else {
       const path =
         f === 0 ? `textures/geyser_custom/atlases/${name}` : `textures/geyser_custom/atlases/${name}_f${f}`;
       ctx.bedrock.write(path + ".png", encodePng(frameAtlas.image));
       atlasCache.set(hash, path);
+      selectionCache.set(selKey, path);
       framePaths.push(path);
     }
   }
@@ -251,11 +279,15 @@ function convertModel(
     const id = resolveFaceTexture(resolved.textures, face.texture);
     return id !== undefined ? atlas.placements.get(id) : undefined;
   };
-  const geo = buildGeometry(geometryId, elements, faceTexture, {
-    width: atlas.image.width,
-    height: atlas.image.height,
-  });
-  ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}.geo.json`, geo.geometry);
+  const geo = timeOp("geometry.build", () =>
+    buildGeometry(geometryId, elements, faceTexture, {
+      width: atlas.image.width,
+      height: atlas.image.height,
+    }),
+  );
+  timeOp("json.write", () =>
+    ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}.geo.json`, geo.geometry),
+  );
 
   // 5. Display-transform animations. Back cosmetics (HMCCosmetics backpacks —
   // armor-stand head items) get a head lift: Bedrock renders those lower than Java.
