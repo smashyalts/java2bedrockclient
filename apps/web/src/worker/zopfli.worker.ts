@@ -1,21 +1,34 @@
 /// <reference lib="webworker" />
 /**
- * Zopfli pool worker: recompresses one PNG per message with the zopfli wasm.
- * Nested under the conversion worker (see zopfliPool.ts). Pixels are unchanged
- * — only the deflate stream is re-packed — so this is lossless.
+ * PNG optimizer pool worker: losslessly re-optimizes one PNG per message with
+ * oxipng (Squoosh's wasm build — filter search + max-effort deflate). Pixels
+ * are unchanged, only the encoding shrinks. Nested under the conversion worker
+ * (see zopfliPool.ts).
+ *
+ * oxipng (wasm-bindgen) initializes cleanly in the browser, unlike the older
+ * emscripten zopfli whose runtime never fired and hung the pass.
  */
-import { zopfliRecompressPng } from "@geyser-converter/core";
+import optimise from "@jsquash/oxipng/optimise.js";
 
 interface Job {
   id: number;
   bytes: Uint8Array;
 }
 
+/** oxipng effort level 1–6; higher = more filter/deflate trials (slower, smaller). */
+const LEVEL = 4;
+
 self.onmessage = async (e: MessageEvent<Job>) => {
   const { id, bytes } = e.data;
   let result: Uint8Array | undefined;
   try {
-    result = await zopfliRecompressPng(bytes);
+    // oxipng wants a plain ArrayBuffer holding exactly this PNG's bytes.
+    const copy = bytes.slice();
+    const out = new Uint8Array(
+      await optimise(copy.buffer as ArrayBuffer, { level: LEVEL, interlace: false, optimiseAlpha: false }),
+    );
+    // Keep only if it actually shrank (it re-optimizes, never lossy).
+    result = out.length < bytes.length ? out : undefined;
   } catch {
     result = undefined;
   }

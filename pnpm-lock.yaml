@@ -38,6 +38,9 @@ importers:
       '@geyser-converter/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@jsquash/oxipng':
+        specifier: ^2.3.0
+        version: 2.3.0
       comlink:
         specifier: ^4.4.1
         version: 4.4.2
@@ -69,6 +72,9 @@ importers:
       '@gfx/zopfli':
         specifier: ^1.0.15
         version: 1.0.15
+      '@jsquash/oxipng':
+        specifier: ^2.3.0
+        version: 2.3.0
       '@noble/hashes':
         specifier: ^1.5.0
         version: 1.8.0
@@ -499,6 +505,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@jsquash/oxipng@2.3.0':
+    resolution: {integrity: sha512-aQ8wiEp6ztlTMXc+RMt/CG8crU3mEHDU+h+JYkIi6ctMhlh8+Ltj5XwQFfBuyzKYrp8NxaFW80Dp824bqjr+zA==}
 
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
@@ -1035,6 +1044,9 @@ packages:
       jsdom:
         optional: true
 
+  wasm-feature-detect@1.8.0:
+    resolution: {integrity: sha512-zksaLKM2fVlnB5jQQDqKXXwYHLQUVH9es+5TOOHwGOVJOCeRBCiPjwSg+3tN2AdTCzjgli4jijCH290kXb/zWQ==}
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -1326,6 +1338,10 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@jsquash/oxipng@2.3.0':
+    dependencies:
+      wasm-feature-detect: 1.8.0
 
   '@noble/hashes@1.8.0': {}
 
@@ -1832,6 +1848,8 @@ snapshots:
       - sugarss
       - supports-color
       - terser
+
+  wasm-feature-detect@1.8.0: {}
 
   why-is-node-running@2.3.0:
     dependencies:

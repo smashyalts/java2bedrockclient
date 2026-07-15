@@ -128,10 +128,10 @@ export const optimizeStage: PipelineStage = {
     const after = packSize(ctx);
     if (before > after) {
       const zopfliNote = !ctx.options.maxCompression
-        ? "zopfli off (enable max compression for ~12% more off large textures)"
+        ? "max compression off (enable it for ~12% more off large textures)"
         : zopflied === 0 && ctx.options.recompressor !== undefined
-          ? "0 zopfli-recompressed — this browser could not run the zopfli wasm; use the CLI/API for guaranteed max compression"
-          : `${zopflied} large texture(s) zopfli-recompressed`;
+          ? "0 recompressed — this browser could not run the optimizer wasm; use the CLI/API for guaranteed max compression"
+          : `${zopflied} large texture(s) recompressed`;
       ctx.report.converted("optimize", "lossless pack optimization", [
         `${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, ${zopfliNote}, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
       ]);

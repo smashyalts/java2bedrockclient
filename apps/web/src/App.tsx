@@ -148,8 +148,8 @@ export function App() {
                       checked={maxCompression}
                       onChange={(e) => setMaxCompression(e.target.checked)}
                     />
-                    Maximum compression (very slow) — zopfli-recompress large textures for ~12% more
-                    off them. Adds minutes on big packs; leave off unless every KB matters.
+                    Maximum compression — losslessly recompress large textures (oxipng) for ~12%
+                    more off them. Runs across your CPU cores; adds a minute or two on big packs.
                   </label>
                 )}
                 <label style={labelStyle}>
