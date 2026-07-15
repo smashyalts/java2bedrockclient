@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@geyser-converter/web", "dev", "--port", "5173"],
       "port": 5173
+    },
+    {
+      "name": "preview",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@geyser-converter/web", "exec", "vite", "preview", "--port", "4173", "--strictPort"],
+      "port": 4173
     }
   ]
 }

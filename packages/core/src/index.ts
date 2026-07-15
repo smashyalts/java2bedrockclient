@@ -5,7 +5,8 @@ export { readZip, readZipDetailed, writeZip, type ReadZipResult } from "./io/zip
 export { JavaPack, parseResourceLocation } from "./java/javaPack.js";
 export { ConversionReport, type ReportEntry, type ConversionStatus } from "./report/report.js";
 export { Timings } from "./report/timings.js";
-export type { PngRecompressor } from "./convert/context.js";
+export type { PngRecompressor, PngEncoder, RawImage } from "./convert/context.js";
 export { zopfliRecompressPng } from "./image/zopfliPng.js";
+export { encodePng } from "./image/png.js";
 export { deterministicUuid, buildManifest } from "./bedrock/manifest.js";
 export { parseOraxenConfigZip, parseOraxenConfigZips, type OraxenHints } from "./java/oraxen.js";

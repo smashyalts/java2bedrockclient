@@ -82,6 +82,7 @@ export async function convertPack(
     optimizePack: options?.optimizePack ?? DEFAULT_OPTIONS.optimizePack,
     maxCompression: options?.maxCompression ?? DEFAULT_OPTIONS.maxCompression,
     recompressor: options?.recompressor,
+    pngEncoder: options?.pngEncoder,
   };
 
   const timings = new Timings();

@@ -40,8 +40,10 @@ describe("convertPack", () => {
     // passthrough (modern parity name)
     expect(out.has("textures/blocks/barrel_top.png")).toBe(true);
     expect(out.has("textures/items/apple_golden.png")).toBe(true);
-    // custom namespace preserved
-    expect(out.has("textures/custom/item/ruby.png")).toBe(true);
+    // Unreferenced custom-namespace textures are swept by the optimizer's
+    // dead-file elimination — no model, mapping, or JSON points at ruby, so
+    // Bedrock could never load it.
+    expect(out.has("textures/custom/item/ruby.png")).toBe(false);
 
     const manifest = JSON.parse(out.readText("manifest.json")!);
     expect(manifest.header.name).toBe("Test");

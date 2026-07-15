@@ -78,11 +78,17 @@ function decodePngUntimed(bytes: Uint8Array): RgbaImage {
 }
 
 export function encodePng(image: RgbaImage): Uint8Array {
+  // Opaque grayscale textures (masks, ao maps, some blocks) encode smallest as
+  // colour-type-0: no PLTE/tRNS palette overhead at all. The check early-outs
+  // on the first coloured or translucent pixel, so coloured art pays ~nothing.
+  const gray = timeOp("png.encode.gray", () => encodeGrayscalePng(image));
   // Pixel art almost always fits a ≤256-colour palette, where an indexed PNG
-  // is both smaller and far cheaper than UPNG's filter search. Try it first
-  // and, when it fits, ship it — skipping the expensive RGBA encode entirely.
-  // Only images with >256 colours (photographic textures) fall back to UPNG.
+  // is both smaller and far cheaper than UPNG's filter search. Ship the smaller
+  // of the two palette-free/indexed encodings when either fits — skipping the
+  // expensive RGBA encode entirely. Only images with >256 colours (photographic
+  // textures) fall back to UPNG.
   const indexed = timeOp("png.encode.indexed", () => encodeIndexedPng(image));
+  if (gray !== undefined && (indexed === undefined || gray.length < indexed.length)) return gray;
   if (indexed !== undefined) return indexed;
   return timeOp("png.encode.rgba", () => {
     const buf = image.data.buffer.slice(
@@ -174,18 +180,75 @@ export function encodeIndexedPng(image: RgbaImage): Uint8Array | undefined {
   const trns = new Uint8Array(trnsLen);
   for (let i = 0; i < trnsLen; i++) trns[i] = palette[i]! & 0xff;
 
-  const chunks = [
-    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  return assemblePng([
     pngChunk("IHDR", ihdr),
     pngChunk("PLTE", plte),
     ...(trnsLen > 0 ? [pngChunk("tRNS", trns)] : []),
     pngChunk("IDAT", zlibSync(raw, { level: 9 })),
     pngChunk("IEND", new Uint8Array(0)),
-  ];
-  const total = chunks.reduce((n, c) => n + c.length, 0);
+  ]);
+}
+
+/** Sample grids each type-0 bit depth can represent losslessly (step = 255/(2^d−1)). */
+const GRAY_DEPTHS: { depth: number; step: number }[] = [
+  { depth: 1, step: 255 },
+  { depth: 2, step: 85 },
+  { depth: 4, step: 17 },
+  { depth: 8, step: 1 },
+];
+
+/**
+ * Encode as colour-type-0 (grayscale) PNG at the smallest lossless bit depth.
+ * Returns undefined unless every pixel is fully opaque and r=g=b — otherwise a
+ * palette (indexed) or RGBA encode is needed. Beats indexed on true grayscale
+ * because it carries no PLTE/tRNS chunk.
+ */
+export function encodeGrayscalePng(image: RgbaImage): Uint8Array | undefined {
+  const { width, height, data } = image;
+  const grays = new Set<number>();
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i]!;
+    if (data[i + 3] !== 255 || data[i + 1] !== r || data[i + 2] !== r) return undefined;
+    grays.add(r);
+  }
+  // Smallest depth whose sample grid represents every gray value exactly.
+  const grid = GRAY_DEPTHS.find(({ step }) => [...grays].every((g) => g % step === 0));
+  if (grid === undefined) return undefined; // unreachable: depth 8 (step 1) always fits
+  const { depth, step } = grid;
+
+  const rowBytes = Math.ceil((width * depth) / 8);
+  const raw = new Uint8Array((rowBytes + 1) * height); // filter 0 per scanline
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (rowBytes + 1);
+    for (let x = 0; x < width; x++) {
+      const sample = data[(y * width + x) * 4]! / step;
+      const bitPos = x * depth;
+      raw[rowStart + 1 + (bitPos >> 3)]! |= sample << (8 - depth - (bitPos & 7));
+    }
+  }
+
+  const ihdr = new Uint8Array(13);
+  const ihdrView = new DataView(ihdr.buffer);
+  ihdrView.setUint32(0, width);
+  ihdrView.setUint32(4, height);
+  ihdr[8] = depth;
+  ihdr[9] = 0; // grayscale
+
+  return assemblePng([
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", zlibSync(raw, { level: 9 })),
+    pngChunk("IEND", new Uint8Array(0)),
+  ]);
+}
+
+/** Prefix the PNG signature and concatenate chunks into one buffer. */
+function assemblePng(chunks: Uint8Array[]): Uint8Array {
+  const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const all = [signature, ...chunks];
+  const total = all.reduce((n, c) => n + c.length, 0);
   const out = new Uint8Array(total);
   let offset = 0;
-  for (const c of chunks) {
+  for (const c of all) {
     out.set(c, offset);
     offset += c.length;
   }

@@ -5,11 +5,12 @@ import { buildDisplayAnimations } from "../../bedrock/animations.js";
 import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
 import { parseLenientJson } from "../../java/json.js";
 import { alphaBleed, decodePng, encodePng, type RgbaImage } from "../../image/png.js";
-import { timeOp } from "../../report/timings.js";
+import { timeOp, timeOpAsync } from "../../report/timings.js";
 import { renderModelIcon } from "../../image/modelRender.js";
 import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
+import { fastHash } from "../../util/hash.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
 
@@ -24,23 +25,6 @@ function missingTexture(): RgbaImage {
   ];
   px.forEach((p, i) => data.set(p, i * 4));
   return { width: 2, height: 2, data };
-}
-
-/**
- * Fast content hash for atlas dedup keys. Two independent FNV-1a lanes give a
- * 64-bit digest — collision odds across a pack's frames are ~1e-12, so we skip
- * a cryptographic hash (sha256 here cost ~12s on a large pack). Dedup only
- * needs "same pixels → same key", not tamper resistance.
- */
-function fastHash(data: Uint8Array): string {
-  let h1 = 0x811c9dc5 ^ data.length;
-  let h2 = 0xc2b2ae35 ^ data.length;
-  for (let i = 0; i < data.length; i++) {
-    const b = data[i]!;
-    h1 = Math.imul(h1 ^ b, 0x01000193);
-    h2 = Math.imul(h2 ^ b, 0x85ebca77);
-  }
-  return (h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0");
 }
 
 interface LoadedTexture {
@@ -77,8 +61,25 @@ function gcd(a: number, b: number): number {
  * Load a texture, splitting mcmeta flipbook strips into ordered frames.
  * Per-frame `time` values are honoured by expanding frames on a gcd tick
  * grid, so a frame lasting 2× the base frametime appears twice.
+ *
+ * Results are memoized by texture id for the whole stage: a source texture
+ * shared by many models (particle sheets, reused flipbooks) is decoded and
+ * split once. Downstream never mutates the returned frames (atlas blit copies
+ * pixels out), so sharing them is safe.
  */
-function loadTexture(ctx: ConversionContext, textureId: string): LoadedTexture | undefined {
+function loadTexture(
+  ctx: ConversionContext,
+  textureId: string,
+  cache: Map<string, LoadedTexture | undefined>,
+): LoadedTexture | undefined {
+  const cached = cache.get(textureId);
+  if (cached !== undefined || cache.has(textureId)) return cached;
+  const result = loadTextureUncached(ctx, textureId);
+  cache.set(textureId, result);
+  return result;
+}
+
+function loadTextureUncached(ctx: ConversionContext, textureId: string): LoadedTexture | undefined {
   const path = ctx.java.assetPath("textures", textureId, ".png");
   const bytes = ctx.java.read(path);
   if (bytes === undefined) return undefined;
@@ -138,9 +139,18 @@ function loadTexture(ctx: ConversionContext, textureId: string): LoadedTexture |
  * Converts 3D item models collected by the items stage into Bedrock
  * geometry + attachable + animation trios, and registers Geyser mappings.
  */
+/** A PNG encode deferred until the batch flush (path + the image to encode). */
+interface EncodeJob {
+  path: string;
+  image: RgbaImage;
+}
+
+/** Below this many deferred encodes, the pool round-trip isn't worth it; encode inline. */
+const ENCODE_POOL_THRESHOLD = 24;
+
 export const geometryStage: PipelineStage = {
   name: "items-3d",
-  run(ctx: ConversionContext): void {
+  async run(ctx: ConversionContext): Promise<void> {
     // Group variants by model so shared models produce one geometry/attachable.
     const byModel = new Map<string, PendingGeometry[]>();
     for (const pending of ctx.pendingGeometry) {
@@ -154,16 +164,32 @@ export const geometryStage: PipelineStage = {
     // frames across the whole pack — repeated animation frames and shared
     // texture sets (bow_0/1/2 charge variants) reuse one PNG.
     const atlasCache = new Map<string, string>();
+    // PNG encoding is the stage hotspot. Every atlas/icon path and all geometry
+    // is emitted synchronously below, but the pixel encodes are collected here
+    // and flushed once — in parallel across the injected worker pool when present.
+    const encodeJobs: EncodeJob[] = [];
+    // Decode each source texture once, even when many models share it.
+    const textureCache = new Map<string, LoadedTexture | undefined>();
 
     let done = 0;
     for (const [modelId, group] of byModel) {
       done++;
       ctx.progress("items-3d", done, byModel.size);
       try {
-        convertModel(ctx, modelId, group, atlasCache);
+        convertModel(ctx, modelId, group, atlasCache, encodeJobs, textureCache);
       } catch (err) {
         ctx.report.error("items-3d", modelId, err instanceof Error ? err.message : String(err));
       }
+    }
+
+    const encoder = ctx.options.pngEncoder;
+    if (encoder !== undefined && encodeJobs.length >= ENCODE_POOL_THRESHOLD) {
+      const pngs = await timeOpAsync("png.encode.pool", () =>
+        encoder.encode(encodeJobs.map((j) => j.image)),
+      );
+      encodeJobs.forEach((j, i) => ctx.bedrock.write(j.path, pngs[i]!));
+    } else {
+      for (const j of encodeJobs) ctx.bedrock.write(j.path, encodePng(j.image));
     }
   },
 };
@@ -173,6 +199,8 @@ function convertModel(
   modelId: string,
   group: PendingGeometry[],
   atlasCache: Map<string, string>,
+  encodeJobs: EncodeJob[],
+  textureCache: Map<string, LoadedTexture | undefined>,
 ): void {
   const resolved = group[0]!.resolved;
   const elements = resolved.elements ?? [];
@@ -195,7 +223,7 @@ function convertModel(
   // mcmeta flipbook strips into frames.
   const loaded = new Map<string, LoadedTexture>();
   for (const id of textureIds) {
-    const tex = loadTexture(ctx, id);
+    const tex = loadTexture(ctx, id, textureCache);
     if (tex === undefined) {
       ctx.report.approximated("items-3d", modelId, `texture ${id} missing — magenta placeholder used`);
       loaded.set(id, { frames: [missingTexture()], frametime: 1 });
@@ -262,7 +290,7 @@ function convertModel(
     } else {
       const path =
         f === 0 ? `textures/geyser_custom/atlases/${name}` : `textures/geyser_custom/atlases/${name}_f${f}`;
-      ctx.bedrock.write(path + ".png", encodePng(frameAtlas.image));
+      encodeJobs.push({ path: path + ".png", image: frameAtlas.image });
       atlasCache.set(hash, path);
       selectionCache.set(selKey, path);
       framePaths.push(path);
@@ -334,7 +362,7 @@ function convertModel(
   }
 
   // 7. Icon: sprites.json override → isometric software render of the model.
-  const iconKey = pickIcon(ctx, modelId, name, resolved, images);
+  const iconKey = pickIcon(ctx, modelId, name, resolved, images, encodeJobs);
 
   // 8. Register a mapping entry per variant, and an attachable per unique
   // bedrock identifier (definitions may get item-model based identifiers, so
@@ -411,6 +439,7 @@ function pickIcon(
   name: string,
   resolved: ResolvedModel,
   images: Map<string, RgbaImage>,
+  encodeJobs: EncodeJob[],
 ): string {
   const iconKey = `${name}_icon`;
   if (ctx.itemTextures.has(iconKey)) return iconKey;
@@ -443,7 +472,7 @@ function pickIcon(
   }
 
   alphaBleed(image);
-  ctx.bedrock.write(path + ".png", encodePng(image));
+  encodeJobs.push({ path: path + ".png", image });
   ctx.itemTextures.set(iconKey, { textures: path });
   return iconKey;
 }

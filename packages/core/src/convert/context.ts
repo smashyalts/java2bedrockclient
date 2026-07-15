@@ -62,6 +62,25 @@ export interface ConvertOptions {
    * absent (node CLI/API) the pass falls back to in-process sequential zopfli.
    */
   recompressor?: PngRecompressor;
+  /**
+   * Optional parallel PNG encoder — the web build injects a Web Worker pool so
+   * the geometry stage's atlas/icon encodes (the conversion hotspot) run across
+   * all cores. When absent (node CLI/API) the stage encodes in-process.
+   */
+  pngEncoder?: PngEncoder;
+}
+
+/** A batch RGBA→PNG encoder; implemented in the web app as a worker pool. */
+export interface PngEncoder {
+  /** Encode each image with the core encoder (indexed/grayscale/RGBA, smallest wins). */
+  encode(images: RawImage[]): Promise<Uint8Array[]>;
+}
+
+/** Plain RGBA image payload (structured-clone friendly, no methods). */
+export interface RawImage {
+  width: number;
+  height: number;
+  data: Uint8Array;
 }
 
 /** A batch PNG recompressor; implemented in the web app as a worker pool. */

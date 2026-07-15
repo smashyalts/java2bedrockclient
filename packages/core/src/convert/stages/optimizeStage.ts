@@ -1,8 +1,8 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { parseLenientJson } from "../../java/json.js";
-import { decodePng, encodePng } from "../../image/png.js";
+import { decodePng, encodePng, type RgbaImage } from "../../image/png.js";
 import { zopfliRecompressPng } from "../../image/zopfliPng.js";
-import { sha256 } from "@noble/hashes/sha2";
+import { fastHash } from "../../util/hash.js";
 
 /**
  * Lossless pack optimizer (runs last, after every file is written):
@@ -25,12 +25,33 @@ import { sha256 } from "@noble/hashes/sha2";
 /** Only zopfli PNGs at least this large — below it the byte win isn't worth the time. */
 const ZOPFLI_MIN_BYTES = 4096;
 
+/** Below this many decoded textures in a chunk, the pool round-trip isn't worth it. */
+const ENCODE_POOL_MIN = 8;
+
 export const optimizeStage: PipelineStage = {
   name: "optimize",
   async run(ctx: ConversionContext): Promise<void> {
     if (!ctx.options.optimizePack) return;
 
     const before = packSize(ctx);
+
+    // --- 0. Dead-file elimination. ---
+    // The textures stage copies every custom-namespace texture (textures/<ns>/…)
+    // verbatim so nothing is lost, but the item/block stages then re-encode the
+    // ones they use into textures/geyser_custom/…. The verbatim copies that no
+    // pack JSON (item_texture, terrain_texture, attachables, flipbooks) points
+    // at are pure dead weight — Bedrock never loads them and Geyser addresses
+    // custom content by texture key, not path. Sweep them. Vanilla-root textures
+    // (textures/blocks, /items, …) are kept: Bedrock loads those by path
+    // convention, so their absence from JSON does not mean unused.
+    const referenced = collectReferencedTextures(ctx);
+    let swept = 0;
+    for (const path of ctx.bedrock.list({ prefix: "textures/", suffix: ".png" })) {
+      if (isVanillaTexturePath(path)) continue;
+      if (referenced.has(stripExt(path))) continue;
+      ctx.bedrock.delete(path);
+      swept++;
+    }
 
     // --- 1. Merge duplicate generated textures. ---
     // References use the path without extension (attachables, item_texture,
@@ -40,7 +61,7 @@ export const optimizeStage: PipelineStage = {
     let merged = 0;
     for (const path of ctx.bedrock.list({ prefix: "textures/geyser_custom/", suffix: ".png" })) {
       const bytes = ctx.bedrock.read(path)!;
-      const hash = hex(sha256(bytes));
+      const hash = fastHash(bytes);
       const canonical = byHash.get(hash);
       if (canonical === undefined) {
         byHash.set(hash, path);
@@ -54,19 +75,37 @@ export const optimizeStage: PipelineStage = {
     // --- 2. Re-encode passthrough textures, keep the smaller encode. ---
     // Generated textures (geyser_custom) were born from encodePng and are
     // already optimal; everything else came straight from the Java pack.
+    // Decode on this thread (cheap: inflate only) but encode across the worker
+    // pool when injected (expensive: filter search + deflate). Chunked so at
+    // most CHUNK decoded RGBA images are resident at once — unbounded decode
+    // would blow browser memory on a texture-heavy pack.
     let reencoded = 0;
-    for (const path of ctx.bedrock.list({ suffix: ".png" })) {
-      if (path.startsWith("textures/geyser_custom/")) continue;
-      const bytes = ctx.bedrock.read(path)!;
-      try {
-        const smaller = encodePng(decodePng(bytes));
-        if (smaller.length < bytes.length) {
-          ctx.bedrock.write(path, smaller);
+    const passthrough = ctx.bedrock
+      .list({ suffix: ".png" })
+      .filter((p) => !p.startsWith("textures/geyser_custom/"));
+    const encoder = ctx.options.pngEncoder;
+    const CHUNK = 64;
+    for (let i = 0; i < passthrough.length; i += CHUNK) {
+      const decoded: { path: string; origLen: number; image: RgbaImage }[] = [];
+      for (const path of passthrough.slice(i, i + CHUNK)) {
+        const bytes = ctx.bedrock.read(path)!;
+        try {
+          decoded.push({ path, origLen: bytes.length, image: decodePng(bytes) });
+        } catch {
+          // Undecodable/exotic PNG — ship the original untouched.
+        }
+      }
+      if (decoded.length === 0) continue;
+      const encoded =
+        encoder !== undefined && decoded.length >= ENCODE_POOL_MIN
+          ? await encoder.encode(decoded.map((d) => d.image))
+          : decoded.map((d) => encodePng(d.image));
+      decoded.forEach((d, j) => {
+        if (encoded[j]!.length < d.origLen) {
+          ctx.bedrock.write(d.path, encoded[j]!);
           reencoded++;
         }
-      } catch {
-        // Undecodable/exotic PNG — ship the original untouched.
-      }
+      });
     }
 
     // --- 3. Rewrite references + minify all JSON. ---
@@ -133,7 +172,7 @@ export const optimizeStage: PipelineStage = {
           ? "0 recompressed — this browser could not run the optimizer wasm; use the CLI/API for guaranteed max compression"
           : `${zopflied} large texture(s) recompressed`;
       ctx.report.converted("optimize", "lossless pack optimization", [
-        `${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, ${zopfliNote}, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
+        `${swept} unreferenced texture(s) removed, ${merged} duplicate texture(s) merged, ${reencoded} texture(s) re-encoded smaller, ${zopfliNote}, JSON minified — ${formatBytes(before - after)} saved (${before} → ${after} bytes uncompressed)`,
       ]);
     }
   },
@@ -143,10 +182,47 @@ function stripExt(path: string): string {
   return path.replace(/\.png$/, "");
 }
 
-function hex(bytes: Uint8Array): string {
-  let out = "";
-  for (const b of bytes) out += b.toString(16).padStart(2, "0");
-  return out;
+/**
+ * Bedrock texture roots the client loads by path convention (vanilla overrides).
+ * Files here are legitimately absent from every JSON, so they are never swept.
+ */
+const VANILLA_TEXTURE_ROOTS = [
+  "textures/blocks/",
+  "textures/items/",
+  "textures/entity/",
+  "textures/environment/",
+  "textures/colormap/",
+  "textures/misc/",
+  "textures/models/",
+  "textures/map/",
+  "textures/painting/",
+  "textures/particle/",
+  "textures/gui/",
+  "textures/ui/",
+  "textures/trims/",
+  "textures/flame_atlas/",
+];
+
+function isVanillaTexturePath(path: string): boolean {
+  return VANILLA_TEXTURE_ROOTS.some((root) => path.startsWith(root));
+}
+
+/**
+ * Every texture path (without extension) referenced by any JSON in the pack.
+ * A regex sweep over the raw text catches every reference form — item_texture
+ * and terrain_texture values, attachable `textures` maps, flipbook_texture
+ * entries — without having to know each schema. References omit the extension;
+ * we normalize both sides by stripping `.png`.
+ */
+function collectReferencedTextures(ctx: ConversionContext): Set<string> {
+  const referenced = new Set<string>();
+  const re = /textures\/[A-Za-z0-9_\-./]+/g;
+  for (const path of ctx.bedrock.list({ suffix: ".json" })) {
+    const text = ctx.bedrock.readText(path);
+    if (text === undefined) continue;
+    for (const match of text.matchAll(re)) referenced.add(stripExt(match[0]));
+  }
+  return referenced;
 }
 
 function packSize(ctx: ConversionContext): number {

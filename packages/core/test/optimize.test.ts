@@ -74,8 +74,8 @@ describe("lossless pack optimizer", () => {
 
     const offEntry = off.report.entries.find((e) => e.stage === "optimize")!;
     const onEntry = on.report.entries.find((e) => e.stage === "optimize")!;
-    expect(offEntry.outputs![0]).toContain("zopfli off");
-    expect(onEntry.outputs![0]).toMatch(/zopfli-recompressed/);
+    expect(offEntry.outputs![0]).toContain("max compression off");
+    expect(onEntry.outputs![0]).toMatch(/recompressed/);
 
     // Recompressed pack is no larger, and PNGs stay decodable.
     expect(on.mcpack.length).toBeLessThanOrEqual(off.mcpack.length + 512);

@@ -7,6 +7,7 @@ import {
   type ConvertResult,
 } from "@geyser-converter/core";
 import { createZopfliPool, poolSize } from "./zopfliPool.js";
+import { createEncodePool } from "./encodePool.js";
 
 export interface WorkerApi {
   convert(
@@ -35,9 +36,13 @@ const api: WorkerApi = {
       };
       hintCount = hints.items;
     }
+    // Parallelize the geometry stage's PNG encoding (the conversion hotspot)
+    // across a worker pool; workers spawn lazily so small packs pay nothing.
+    const encodePool = createEncodePool(poolSize());
     // Parallelize the slow zopfli max-compression pass across a worker pool so
     // it finishes in ~1/cores of the single-threaded time.
     const pool = options.maxCompression ? createZopfliPool(poolSize()) : undefined;
+    options = { ...options, pngEncoder: encodePool };
     if (pool !== undefined) options = { ...options, recompressor: pool };
     try {
       const result = await convertPack(zipBytes, options, (stage, done, total) => {
@@ -46,6 +51,7 @@ const api: WorkerApi = {
       return { ...result, hintCount };
     } finally {
       pool?.dispose();
+      encodePool.dispose();
     }
   },
 };

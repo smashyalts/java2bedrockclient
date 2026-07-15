@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { zipSync } from "fflate";
 import { encode as fastPngEncode } from "fast-png";
 import { convertPack, readZip } from "../src/index.js";
-import { decodePng, encodePng, encodeIndexedPng, type RgbaImage } from "../src/image/png.js";
+import { decodePng, encodePng, encodeIndexedPng, encodeGrayscalePng, type RgbaImage } from "../src/image/png.js";
 
 function image(width: number, height: number, pixel: (x: number, y: number) => [number, number, number, number]): RgbaImage {
   const data = new Uint8Array(width * height * 4);
@@ -45,6 +45,39 @@ describe("indexed PNG encoding", () => {
     expect(encodeIndexedPng(img)).toBeUndefined();
     const encoded = encodePng(img);
     expect([...decodePng(encoded).data]).toEqual([...img.data]);
+  });
+});
+
+describe("grayscale PNG encoding", () => {
+  it("encodes opaque grayscale as colour-type 0 and beats indexed (no palette)", () => {
+    // 256 distinct opaque grays — indexed would need a full 768-byte palette.
+    const img = image(16, 16, (x, y) => {
+      const g = (y * 16 + x) & 0xff;
+      return [g, g, g, 255];
+    });
+    const gray = encodeGrayscalePng(img)!;
+    expect(gray).toBeDefined();
+    expect(gray[25]).toBe(0); // colour type 0 (grayscale)
+    expect([...decodePng(gray).data]).toEqual([...img.data]);
+    // encodePng ships the grayscale encode because it is smaller than indexed.
+    const shipped = encodePng(img);
+    expect(shipped[25]).toBe(0);
+    expect(shipped.length).toBeLessThan(encodeIndexedPng(img)!.length);
+  });
+
+  it("packs 2-level grayscale at bit depth 1", () => {
+    const img = image(16, 16, (x) => (x % 2 === 0 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
+    const gray = encodeGrayscalePng(img)!;
+    expect(gray[24]).toBe(1); // bit depth 1
+    expect(gray[25]).toBe(0);
+    expect([...decodePng(gray).data]).toEqual([...img.data]);
+  });
+
+  it("declines translucent or coloured images (needs palette/RGBA)", () => {
+    const translucent = image(8, 8, () => [100, 100, 100, 200]);
+    expect(encodeGrayscalePng(translucent)).toBeUndefined();
+    const coloured = image(8, 8, () => [10, 20, 30, 255]);
+    expect(encodeGrayscalePng(coloured)).toBeUndefined();
   });
 });
 
