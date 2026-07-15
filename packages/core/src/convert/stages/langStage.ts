@@ -37,9 +37,9 @@ export const langStage: PipelineStage = {
     for (const [code, entries] of locales) {
       const lines: string[] = [];
       for (const [key, value] of entries) {
-        // Java positional args (%1$s / %2$d) → Bedrock's %1 / %2 syntax;
+        // Java positional args (%1$s, %2$d, %3$f, …) → Bedrock's %1 / %2 syntax;
         // .lang format: key=value, newlines escaped.
-        const converted = value.replace(/%(\d+)\$[sd]/g, "%$1").replace(/\r?\n/g, "%1");
+        const converted = value.replace(/%(\d+)\$[sdefgxXcboh]/g, "%$1").replace(/\r?\n/g, "%1");
         lines.push(`${key}=${converted}`);
       }
       ctx.bedrock.writeText(`texts/${code}.lang`, lines.join("\n") + "\n");

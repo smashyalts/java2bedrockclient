@@ -63,10 +63,44 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
           const onMessage = (e: MessageEvent<Reply>): void => {
             if (e.data.id !== id) return;
             worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            worker.removeEventListener("messageerror", onMessageError);
+            clearTimeout(timer);
             finish(id, e.data.png);
             pump(worker);
           };
           worker.addEventListener("message", onMessage);
+
+          const onError = (_e: ErrorEvent): void => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            worker.removeEventListener("messageerror", onMessageError);
+            clearTimeout(timer);
+            finish(id, undefined); // in-process fallback
+            pump(worker);
+          };
+          worker.addEventListener("error", onError);
+
+          // messageerror: data could not be deserialized — treat as failure.
+          const onMessageError = (): void => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            worker.removeEventListener("messageerror", onMessageError);
+            clearTimeout(timer);
+            finish(id, undefined);
+            pump(worker);
+          };
+          worker.addEventListener("messageerror", onMessageError);
+
+          // Safety timeout: if the worker is silently killed (OOM, tab crash),
+          // the message/error events never fire. Fall back to in-process encode.
+          const timer = setTimeout(() => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            worker.removeEventListener("messageerror", onMessageError);
+            finish(id, undefined);
+            pump(worker);
+          }, 30000);
 
           // Do NOT transfer the input buffer — the core keeps the image for the
           // in-process fallback if the worker returns undefined. Structured

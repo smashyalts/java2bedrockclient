@@ -72,9 +72,6 @@ importers:
       '@gfx/zopfli':
         specifier: ^1.0.15
         version: 1.0.15
-      '@jsquash/oxipng':
-        specifier: ^2.3.0
-        version: 2.3.0
       '@noble/hashes':
         specifier: ^1.5.0
         version: 1.8.0
@@ -82,7 +79,7 @@ importers:
         specifier: ^6.2.0
         version: 6.4.0
       fflate:
-        specifier: ^0.8.2
+        specifier: ^0.8.3
         version: 0.8.3
       js-yaml:
         specifier: ^5.2.1
@@ -90,9 +87,6 @@ importers:
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
-      pako:
-        specifier: ^3.0.1
-        version: 3.0.1
       upng-js:
         specifier: ^2.1.0
         version: 2.1.0
@@ -883,9 +877,6 @@ packages:
 
   pako@2.2.0:
     resolution: {integrity: sha512-zJq6RP/5q+TO2OpFV3FHzlPnFjmkb7Nc99a5SNjJE+uu/PkpChs+NIZSSzbBoD+6kjiISXjfYdwj1ZRQ81dz/w==}
-
-  pako@3.0.1:
-    resolution: {integrity: sha512-GupotUUI0mlhugKjUs4bjOwLt3nrehy9Ys2dxC0GtgVef5cnKggkDMmf2bq2poCCuVXopWPmqsc9VDT2iJUy+w==}
 
   pathe@1.1.2:
     resolution: {integrity: sha512-whLdWMYL2TwI08hn8/ZqAbrVemu0LNaNNJZX73O6qaIdCTfXutsLhMkjdENX0qhsQ9uIimo4/aQOmXkoon2nDQ==}
@@ -1683,8 +1674,6 @@ snapshots:
   pako@1.0.11: {}
 
   pako@2.2.0: {}
-
-  pako@3.0.1: {}
 
   pathe@1.1.2: {}
 

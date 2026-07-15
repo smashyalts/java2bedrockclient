@@ -14,6 +14,22 @@ export function decodePng(bytes: Uint8Array): RgbaImage {
   return timeOp("png.decode", () => decodePngUntimed(bytes));
 }
 
+/**
+ * Decode a PNG from a Java pack path, memoizing the result on the provided
+ * cache. Multiple stages that need the same texture share one decode.
+ */
+export function decodeCached(
+  read: (path: string) => Uint8Array | undefined,
+  path: string,
+  cache: Map<string, RgbaImage | undefined>,
+): RgbaImage | undefined {
+  if (cache.has(path)) return cache.get(path);
+  const bytes = read(path);
+  const result = bytes === undefined ? undefined : decodePng(bytes);
+  cache.set(path, result);
+  return result;
+}
+
 function decodePngUntimed(bytes: Uint8Array): RgbaImage {
   const img = decode(bytes);
   const { width, height, depth, channels } = img;
@@ -134,13 +150,23 @@ export function pngChunk(type: string, data: Uint8Array): Uint8Array {
  */
 export function encodeIndexedPng(image: RgbaImage): Uint8Array | undefined {
   const { width, height, data } = image;
-  const seen = new Set<number>();
+  const seen = new Map<number, number>();
   for (let i = 0; i < data.length; i += 4) {
-    seen.add(((data[i]! << 24) | (data[i + 1]! << 16) | (data[i + 2]! << 8) | data[i + 3]!) >>> 0);
+    const key = ((data[i]! << 24) | (data[i + 1]! << 16) | (data[i + 2]! << 8) | data[i + 3]!) >>> 0;
+    seen.set(key, (seen.get(key) ?? 0) + 1);
     if (seen.size > 256) return undefined;
   }
-  // Transparent entries first → shortest possible tRNS chunk.
-  const palette = [...seen].sort((a, b) => (a & 0xff) - (b & 0xff));
+  // Sort: transparent entries first (shortest tRNS chunk), then by frequency
+  // descending — frequently-used colors get lower indices which slightly
+  // improves deflate compression of the indexed scanline data.
+  const palette = [...seen.entries()].sort((a, b) => {
+    const aAlpha = a[0] & 0xff;
+    const bAlpha = b[0] & 0xff;
+    if (aAlpha === 255 && bAlpha === 255) return b[1] - a[1]; // both opaque: by frequency
+    if (aAlpha === 255) return 1; // a opaque, b transparent → b first
+    if (bAlpha === 255) return -1; // a transparent, b opaque → a first
+    return b[1] - a[1]; // both transparent: by frequency
+  }).map((e) => e[0]);
   const indexOf = new Map<number, number>();
   palette.forEach((c, i) => indexOf.set(c, i));
 
@@ -339,7 +365,10 @@ function nextPow2(n: number): number {
  * Returns the image unchanged when it is not taller than wide.
  */
 export function firstFrame(image: RgbaImage): RgbaImage {
-  if (image.height <= image.width) return image;
+  if (image.height <= image.width) {
+    // Non-animated — return a copy so callers can mutate safely.
+    return { width: image.width, height: image.height, data: image.data.slice() };
+  }
   return {
     width: image.width,
     height: image.width,
@@ -351,36 +380,31 @@ export function firstFrame(image: RgbaImage): RgbaImage {
  * Alpha bleed: copy the colour of the nearest opaque pixel into fully
  * transparent pixels. Prevents black fringing when the texture is rendered
  * with bilinear filtering (Bedrock UI does this for non-16px icons).
+ *
+ * Only fills 1-pixel-deep transparent neighbors of opaque pixels — bilinear
+ * filtering only samples a 2×2 neighborhood, so deeper bleeding inflates the
+ * color count (hurting indexed PNG compression) without visual benefit.
  */
 export function alphaBleed(image: RgbaImage): void {
   const { width, height, data } = image;
-  const queue: number[] = [];
-  const visited = new Uint8Array(width * height);
-  // Seed with all opaque pixels.
-  for (let i = 0; i < width * height; i++) {
-    if (data[i * 4 + 3]! > 0) {
-      visited[i] = 1;
-      queue.push(i);
-    }
-  }
-  if (queue.length === 0 || queue.length === width * height) return;
-  // BFS outward, copying RGB from the pixel we came from.
-  for (let head = 0; head < queue.length; head++) {
-    const idx = queue[head]!;
-    const x = idx % width;
-    const y = (idx - x) / width;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-      const nIdx = ny * width + nx;
-      if (visited[nIdx]) continue;
-      visited[nIdx] = 1;
-      data[nIdx * 4] = data[idx * 4]!;
-      data[nIdx * 4 + 1] = data[idx * 4 + 1]!;
-      data[nIdx * 4 + 2] = data[idx * 4 + 2]!;
-      // alpha stays 0
-      queue.push(nIdx);
+  // Seed with all opaque pixels, then fill only their direct neighbors.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (data[idx * 4 + 3]! > 0) continue;
+      // Find nearest opaque neighbor (4-connectivity).
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const nIdx = ny * width + nx;
+        if (data[nIdx * 4 + 3]! > 0) {
+          data[idx * 4] = data[nIdx * 4]!;
+          data[idx * 4 + 1] = data[nIdx * 4 + 1]!;
+          data[idx * 4 + 2] = data[nIdx * 4 + 2]!;
+          break;
+        }
+      }
     }
   }
 }
@@ -388,16 +412,17 @@ export function alphaBleed(image: RgbaImage): void {
 /** Copy a rectangular region out of an image. */
 export function crop(image: RgbaImage, x: number, y: number, w: number, h: number): RgbaImage {
   const out = createImage(w, h);
+  const rowBytes = w * 4;
   for (let row = 0; row < h; row++) {
     const srcY = y + row;
     if (srcY < 0 || srcY >= image.height) continue;
-    for (let col = 0; col < w; col++) {
-      const srcX = x + col;
-      if (srcX < 0 || srcX >= image.width) continue;
-      const si = (srcY * image.width + srcX) * 4;
-      const di = (row * w + col) * 4;
-      out.data.set(image.data.subarray(si, si + 4), di);
-    }
+    // Clip horizontally to image bounds.
+    const startCol = Math.max(0, -x);
+    const endCol = Math.min(w, image.width - x);
+    if (startCol >= endCol) continue;
+    const srcOff = (srcY * image.width + x + startCol) * 4;
+    const dstOff = (row * w + startCol) * 4;
+    out.data.set(image.data.subarray(srcOff, srcOff + (endCol - startCol) * 4), dstOff);
   }
   return out;
 }
@@ -427,21 +452,28 @@ export function flipVertical(image: RgbaImage): RgbaImage {
 
 /** Paste src into dst at (x, y), overwriting pixels (no blending). */
 export function blit(dst: RgbaImage, src: RgbaImage, x: number, y: number): void {
+  const rowBytes = src.width * 4;
   for (let row = 0; row < src.height; row++) {
     const dy = y + row;
     if (dy < 0 || dy >= dst.height) continue;
-    for (let col = 0; col < src.width; col++) {
-      const dx = x + col;
-      if (dx < 0 || dx >= dst.width) continue;
-      dst.data.set(src.data.subarray((row * src.width + col) * 4, (row * src.width + col) * 4 + 4), (dy * dst.width + dx) * 4);
-    }
+    // Clip horizontally to dst bounds.
+    const startCol = Math.max(0, -x);
+    const endCol = Math.min(src.width, dst.width - x);
+    if (startCol >= endCol) continue;
+    const srcOff = (row * src.width + startCol) * 4;
+    const dstOff = (dy * dst.width + x + startCol) * 4;
+    dst.data.set(src.data.subarray(srcOff, srcOff + (endCol - startCol) * 4), dstOff);
   }
 }
 
 /** Composite sprite layers bottom-first into one image, scaling to the largest layer. */
 export function compositeLayers(layers: RgbaImage[]): RgbaImage {
   if (layers.length === 0) throw new Error("no layers to composite");
-  if (layers.length === 1) return layers[0]!;
+  if (layers.length === 1) {
+    // Copy — callers may mutate the result (alphaBleed, tint) and the input
+    // might be a shared cached image.
+    return { width: layers[0]!.width, height: layers[0]!.height, data: layers[0]!.data.slice() };
+  }
   const width = Math.max(...layers.map((l) => l.width));
   const height = Math.max(...layers.map((l) => l.height));
   const out = createImage(width, height);

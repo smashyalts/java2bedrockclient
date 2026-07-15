@@ -6,8 +6,8 @@ import {
   type ConvertOptions,
   type ConvertResult,
 } from "@geyser-converter/core";
-import { createZopfliPool, poolSize } from "./zopfliPool.js";
 import { createEncodePool } from "./encodePool.js";
+import { createZopfliPool, poolSize } from "./zopfliPool.js";
 
 export interface WorkerApi {
   convert(
@@ -35,14 +35,17 @@ const api: WorkerApi = {
         colorHints: hints.colors,
         backpackItems: hints.backpacks,
         furnitureItems: hints.furniture,
+        configZipProvided: true,
       };
       hintCount = hints.items;
     }
     // Parallelize the geometry stage's PNG encoding (the conversion hotspot)
     // across a worker pool; workers spawn lazily so small packs pay nothing.
     const encodePool = createEncodePool(poolSize());
-    // Parallelize the slow zopfli max-compression pass across a worker pool so
-    // it finishes in ~1/cores of the single-threaded time.
+    // Parallelize the slow oxipng max-compression pass across a worker pool so
+    // it finishes in ~1/cores of the single-threaded time. Each job is bounded
+    // by a timeout, so a browser that can't init the wasm keeps the original
+    // bytes and the pass still completes (never freezes).
     const pool = options.maxCompression ? createZopfliPool(poolSize(), oxipngLevel ?? 4) : undefined;
     options = { ...options, pngEncoder: encodePool };
     if (pool !== undefined) options = { ...options, recompressor: pool };

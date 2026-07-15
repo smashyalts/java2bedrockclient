@@ -4,9 +4,9 @@ import type {
   GeyserMaterialInstance,
   PipelineStage,
 } from "../context.js";
-import { resolveModel, type ResolvedModel } from "../../resolve/modelResolver.js";
+import { resolveModel, resolveTextureRef, type ResolvedModel } from "../../resolve/modelResolver.js";
 import { buildGeometry } from "../../bedrock/geometry.js";
-import { alphaBleed, decodePng, encodePng, firstFrame, type RgbaImage } from "../../image/png.js";
+import { alphaBleed, decodeCached, encodePng, firstFrame, type RgbaImage } from "../../image/png.js";
 import { buildAtlas } from "../../image/atlas.js";
 import { safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
@@ -156,7 +156,7 @@ function buildBlockDefinition(
     for (const face of FULL_CUBE_FACES) {
       const ref = elements[0]!.faces?.[face]?.texture;
       if (ref === undefined) continue;
-      const id = resolveRef(resolved.textures, ref);
+      const id = resolveTextureRef(resolved.textures, ref);
       if (id !== undefined) faceTextures.set(face, id);
     }
     if (faceTextures.size === 0) return undefined;
@@ -187,7 +187,7 @@ function buildBlockDefinition(
   const textureIds = new Set<string>();
   for (const element of elements) {
     for (const face of Object.values(element.faces ?? {})) {
-      const id = resolveRef(resolved.textures, face.texture);
+      const id = resolveTextureRef(resolved.textures, face.texture);
       if (id !== undefined) textureIds.add(id);
     }
   }
@@ -196,11 +196,11 @@ function buildBlockDefinition(
   const images = new Map<string, RgbaImage>();
   for (const id of textureIds) {
     const texPath = ctx.java.assetPath("textures", id, ".png");
-    const bytes = ctx.java.read(texPath);
-    if (bytes === undefined) continue;
-    let image = decodePng(bytes);
-    if (image.height > image.width && ctx.java.has(texPath + ".mcmeta")) image = firstFrame(image);
-    images.set(id, image);
+    const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
+    if (image === undefined) continue;
+    let img = image;
+    if (img.height > img.width && ctx.java.has(texPath + ".mcmeta")) img = firstFrame(img);
+    images.set(id, img);
   }
   if (images.size === 0) return undefined;
 
@@ -214,7 +214,7 @@ function buildBlockDefinition(
   const faceTexture = (element: JavaElement, faceName: JavaFaceName) => {
     const face = element.faces?.[faceName];
     if (face === undefined) return undefined;
-    const id = resolveRef(resolved.textures, face.texture);
+    const id = resolveTextureRef(resolved.textures, face.texture);
     return id !== undefined ? atlas.placements.get(id) : undefined;
   };
   const geo = buildGeometry(geometryId, elements, faceTexture, {
@@ -236,33 +236,22 @@ function buildBlockDefinition(
   };
 }
 
-function resolveRef(textures: Record<string, string>, ref: string): string | undefined {
-  let value = ref;
-  const seen = new Set<string>();
-  while (value.startsWith("#")) {
-    const key = value.slice(1);
-    if (seen.has(key)) return undefined;
-    seen.add(key);
-    const next = textures[key];
-    if (next === undefined) return undefined;
-    value = next;
-  }
-  return value;
-}
+// resolveTextureRef from modelResolver replaces the former local resolveRef.
 
 /** Copy a java texture into the pack and register it in terrain_texture.json. */
 function registerTerrainTexture(ctx: ConversionContext, textureId: string): string | undefined {
   const key = `gcb_${safeName(textureId)}`;
   if (ctx.terrainTextures.has(key)) return key;
-  const bytes = ctx.java.read(ctx.java.assetPath("textures", textureId, ".png"));
-  if (bytes === undefined) return undefined;
-  let image = decodePng(bytes);
-  if (image.height > image.width && ctx.java.has(ctx.java.assetPath("textures", textureId, ".png.mcmeta"))) {
-    image = firstFrame(image);
+  const texPath = ctx.java.assetPath("textures", textureId, ".png");
+  const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
+  if (image === undefined) return undefined;
+  let img = image;
+  if (img.height > img.width && ctx.java.has(texPath + ".mcmeta")) {
+    img = firstFrame(img);
   }
-  alphaBleed(image);
+  alphaBleed(img);
   const out = `textures/geyser_custom/blocks/${safeName(textureId)}`;
-  ctx.bedrock.write(out + ".png", encodePng(image));
+  ctx.bedrock.write(out + ".png", encodePng(img));
   ctx.terrainTextures.set(key, { textures: out });
   return key;
 }

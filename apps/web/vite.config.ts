@@ -11,6 +11,13 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+        },
+      },
+    },
   },
   server: {
     allowedHosts: true

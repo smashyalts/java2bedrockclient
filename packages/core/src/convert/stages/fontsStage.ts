@@ -1,5 +1,5 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
-import { createImage, decodePng, encodePng, type RgbaImage } from "../../image/png.js";
+import { createImage, decodeCached, encodePng, type RgbaImage } from "../../image/png.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 
 interface FontProvider {
@@ -40,7 +40,6 @@ export const fontsStage: PipelineStage = {
     // Pass 1: collect all glyphs with their source regions.
     const placements: GlyphPlacement[] = [];
     const taken = new Set<number>(); // page<<8 | index — first definition wins
-    const textureCache = new Map<string, RgbaImage | undefined>();
 
     for (const ns of ctx.java.namespaces()) {
       const prefix = `assets/${ns}/font/`;
@@ -57,11 +56,7 @@ export const fontsStage: PipelineStage = {
 
           const loc = parseResourceLocation(provider.file.replace(/\.png$/, ""));
           const texPath = `assets/${loc.namespace}/textures/${loc.path}.png`;
-          if (!textureCache.has(texPath)) {
-            const bytes = ctx.java.read(texPath);
-            textureCache.set(texPath, bytes !== undefined ? decodePng(bytes) : undefined);
-          }
-          const image = textureCache.get(texPath);
+          const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
           if (image === undefined) {
             ctx.report.skipped("fonts", path, `bitmap font texture ${provider.file} missing`);
             continue;

@@ -57,7 +57,24 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   const baseItem = url.searchParams.get("modernBaseItem");
   if (baseItem) options.modernBaseItem = baseItem;
   const maxFrames = url.searchParams.get("maxAnimationFrames");
-  if (maxFrames) options.maxAnimationFrames = Number(maxFrames);
+  if (maxFrames) {
+    const n = Number(maxFrames);
+    if (!Number.isFinite(n) || n < 0) {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("maxAnimationFrames must be a non-negative number");
+      return;
+    }
+    options.maxAnimationFrames = n;
+  }
+  const oxipngLvl = url.searchParams.get("oxipngLevel");
+  if (oxipngLvl) {
+    const n = Number(oxipngLvl);
+    if (!Number.isFinite(n) || n < 1 || n > 6) {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("oxipngLevel must be a number between 1 and 6");
+      return;
+    }
+  }
   const optimize = url.searchParams.get("optimizePack");
   if (optimize !== null) options.optimizePack = optimize !== "false" && optimize !== "0";
   const maxComp = url.searchParams.get("maxCompression");
@@ -71,6 +88,7 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
     options.colorHints = hints.colors;
     options.backpackItems = hints.backpacks;
     options.furnitureItems = hints.furniture;
+    options.configZipProvided = true;
   }
 
   const result = await convertPack(packBytes, options);
@@ -83,7 +101,7 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   if (result.geyserBlockMappings) bundle["geyser_blocks.json"] = new TextEncoder().encode(result.geyserBlockMappings);
   if (result.displayEntityMappings) bundle["geyser_displayentity_mappings.yml"] = new TextEncoder().encode(result.displayEntityMappings);
 
-  const out = zipSync(bundle, { level: 0 });
+  const out = zipSync(bundle, { level: 6 });
   res.writeHead(200, {
     "content-type": "application/zip",
     "content-disposition": `attachment; filename="${packName}_bedrock.zip"`,

@@ -1,17 +1,25 @@
 import type { ConversionContext, GeyserItemDefinition, PipelineStage } from "../context.js";
 import {
+  extractBowPullGroups,
   extractLegacyVariants,
   extractModernVariants,
   type ItemVariant,
 } from "../../java/itemVariants.js";
 import { resolveModel, spriteLayers, type ResolvedModel } from "../../resolve/modelResolver.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
-import { alphaBleed, compositeLayers, decodePng, encodePng, firstFrame, tint } from "../../image/png.js";
+import { alphaBleed, compositeLayers, decodeCached, encodePng, firstFrame, tint, type RgbaImage } from "../../image/png.js";
 
 /** Sanitize a resource location into a safe identifier chunk. */
 export function safeName(id: string): string {
   return id.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
 }
+
+interface EncodeJob {
+  path: string;
+  image: RgbaImage;
+}
+
+const ENCODE_POOL_THRESHOLD = 24;
 
 function prettyName(id: string): string {
   const path = parseResourceLocation(id).path;
@@ -29,8 +37,11 @@ function prettyName(id: string): string {
  */
 export const itemsStage: PipelineStage = {
   name: "items",
-  run(ctx: ConversionContext): void {
-    const legacy = extractLegacyVariants(ctx.java);
+  async run(ctx: ConversionContext): Promise<void> {
+    // Detect bow-pull groups first so their overrides are skipped in legacy extraction.
+    const { groups: bowPullGroups, consumedKeys } = extractBowPullGroups(ctx.java);
+    ctx.bowPullGroups = bowPullGroups;
+    const legacy = extractLegacyVariants(ctx.java, consumedKeys);
     const modern = extractModernVariants(ctx.java);
     for (const u of [...legacy.unsupported, ...modern.unsupported]) {
       ctx.report.skipped("items", u.origin, u.reason);
@@ -38,24 +49,37 @@ export const itemsStage: PipelineStage = {
 
     const variants = [...legacy.variants, ...modern.variants];
     const seen = new Set<string>();
+    const encodeJobs: EncodeJob[] = [];
     let done = 0;
     for (const variant of variants) {
       done++;
       if (done % 25 === 0) ctx.progress("items", done, variants.length);
-      const dedupeKey = JSON.stringify([variant.baseItem, variant.source, variant.predicates, variant.model]);
+      const dedupeKey = `${variant.baseItem ?? "?"}|${variant.source.kind}|${variant.model}|${variant.predicates.length}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
       try {
-        convertVariant(ctx, variant);
+        convertVariant(ctx, variant, encodeJobs);
       } catch (err) {
         ctx.report.error("items", `${variant.origin} → ${variant.model}`, err instanceof Error ? err.message : String(err));
       }
     }
+
+    // Flush PNG encodes in parallel via the worker pool when available.
+    if (encodeJobs.length > 0) {
+      const encoder = ctx.options.pngEncoder;
+      if (encoder !== undefined && encodeJobs.length >= ENCODE_POOL_THRESHOLD) {
+        const pngs = await encoder.encode(encodeJobs.map((j) => j.image));
+        encodeJobs.forEach((j, i) => ctx.bedrock.write(j.path, pngs[i]!));
+      } else {
+        for (const j of encodeJobs) ctx.bedrock.write(j.path, encodePng(j.image));
+      }
+    }
+
     ctx.progress("items", variants.length, variants.length);
   },
 };
 
-function convertVariant(ctx: ConversionContext, variant: ItemVariant): void {
+function convertVariant(ctx: ConversionContext, variant: ItemVariant, encodeJobs: EncodeJob[]): void {
   const origin = `${variant.origin} → ${variant.model}`;
   const resolved = resolveModel(ctx.java, variant.model);
   if (resolved === undefined) {
@@ -66,7 +90,7 @@ function convertVariant(ctx: ConversionContext, variant: ItemVariant): void {
   switch (resolved.kind) {
     case "sprite":
     case "sprite_handheld":
-      convertSpriteVariant(ctx, variant, resolved);
+      convertSpriteVariant(ctx, variant, resolved, encodeJobs);
       return;
     case "geometry":
       // Handed off to the 3D geometry stage.
@@ -88,7 +112,7 @@ const TINTED_BASE_ITEMS = new Set([
   "minecraft:filled_map", "minecraft:firework_star",
 ]);
 
-function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, resolved: ResolvedModel): void {
+function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, resolved: ResolvedModel, encodeJobs: EncodeJob[]): void {
   const origin = `${variant.origin} → ${variant.model}`;
   // Fixed dye colour from plugin configs — bake the server-side tint into the icon.
   const colorHint = variant.baseItem !== undefined && TINTED_BASE_ITEMS.has(variant.baseItem)
@@ -121,19 +145,19 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
     const images = [];
     for (const layerId of layers) {
       const texPath = ctx.java.assetPath("textures", layerId, ".png");
-      const bytes = ctx.java.read(texPath);
-      if (bytes === undefined) {
+      const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
+      if (image === undefined) {
         ctx.report.approximated("items", origin, `layer texture ${layerId} missing from pack — layer dropped`);
         continue;
       }
-      let image = decodePng(bytes);
+      let img = image;
       // Animated sprite (mcmeta flipbook): Bedrock cannot animate item icons,
       // so crop the vertical frame strip to its first frame.
-      if (image.height > image.width && ctx.java.has(texPath + ".mcmeta")) {
-        image = firstFrame(image);
+      if (img.height > img.width && ctx.java.has(texPath + ".mcmeta")) {
+        img = firstFrame(img);
         ctx.report.approximated("items", origin, `animated icon ${layerId} — Bedrock item icons cannot animate, first frame used`);
       }
-      images.push(image);
+      images.push(img);
     }
     if (images.length === 0) {
       ctx.report.skipped("items", origin, "no layer textures found in pack");
@@ -148,7 +172,7 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
     // the visible art — a 16x17 sprite would render at half size.)
     const icon = compositeLayers(images);
     alphaBleed(icon);
-    ctx.bedrock.write(outPath, encodePng(icon));
+    encodeJobs.push({ path: outPath, image: icon });
     ctx.itemTextures.set(iconKey, { textures: `textures/geyser_custom/${iconKey}` });
   }
 
@@ -301,5 +325,6 @@ function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
     `${variant.origin} → ${variant.model}`,
     `item-model asset has no fixed host item — mapped under ${ctx.options.modernBaseItem}; upload your Oraxen/Nexo config zip or change the "modern base item" option`,
   );
+  ctx.fallbackBaseItemHits++;
   return ctx.options.modernBaseItem;
 }

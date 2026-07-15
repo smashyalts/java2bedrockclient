@@ -66,7 +66,8 @@ export const texturesStage: PipelineStage = {
             [remap.outputPath],
           );
         }
-        // Copy the mcmeta alongside so the flipbook stage can find it later.
+        // mcmeta files are read directly from ctx.java by the flipbook stage,
+        // so no need to copy them here.
         continue;
       }
 

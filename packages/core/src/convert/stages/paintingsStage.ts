@@ -1,5 +1,5 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
-import { createImage, decodePng, encodePng, scaleNearest } from "../../image/png.js";
+import { createImage, decodeCached, encodePng, scaleNearest, type RgbaImage } from "../../image/png.js";
 
 /**
  * Java paintings are individual textures; Bedrock uses the legacy combined
@@ -46,7 +46,7 @@ export const paintingsStage: PipelineStage = {
 
     // Determine upscale factor from the highest-resolution provided painting.
     let scale = 1;
-    const images = new Map<string, ReturnType<typeof decodePng>>();
+    const images = new Map<string, RgbaImage>();
     for (const path of paths) {
       const name = path.slice(prefix.length, -".png".length);
       const slot = PAINTING_SLOTS[name];
@@ -54,9 +54,8 @@ export const paintingsStage: PipelineStage = {
         ctx.report.skipped("paintings", path, `unknown painting "${name}" — not in the Bedrock kz.png atlas`);
         continue;
       }
-      const bytes = ctx.java.read(path);
-      if (bytes === undefined) continue;
-      const img = decodePng(bytes);
+      const img = decodeCached(ctx.java.read.bind(ctx.java), path, ctx.textureCache);
+      if (img === undefined) continue;
       images.set(name, img);
       scale = Math.max(scale, Math.round(img.width / slot[2]));
     }

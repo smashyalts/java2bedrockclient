@@ -13,6 +13,7 @@ export const packagingStage: PipelineStage = {
     ctx.bedrock.writeJson(
       "manifest.json",
       buildManifest({ name: ctx.options.packName, description }),
+      !ctx.options.optimizePack,
     );
 
     const packPng = ctx.java.read("pack.png");
@@ -26,7 +27,7 @@ export const packagingStage: PipelineStage = {
         resource_pack_name: ctx.options.packName,
         texture_name: "atlas.items",
         texture_data: Object.fromEntries(ctx.itemTextures),
-      });
+      }, !ctx.options.optimizePack);
     }
 
     if (ctx.terrainTextures.size > 0) {
@@ -36,7 +37,7 @@ export const packagingStage: PipelineStage = {
         padding: 8,
         num_mip_levels: 4,
         texture_data: Object.fromEntries(ctx.terrainTextures),
-      });
+      }, !ctx.options.optimizePack);
     }
   },
 };

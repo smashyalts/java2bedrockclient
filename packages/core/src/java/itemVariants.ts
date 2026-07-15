@@ -35,8 +35,14 @@ export interface VariantExtraction {
   unsupported: { origin: string; reason: string }[];
 }
 
-/** Extract legacy override-based variants from assets/&lt;ns&gt;/models/item/*.json. */
-export function extractLegacyVariants(pack: JavaPack): VariantExtraction {
+/**
+ * Extract legacy override-based variants from assets/&lt;ns&gt;/models/item/*.json.
+ * `bowPullConsumed` — base items consumed by a bow-pull group are skipped entirely.
+ */
+export function extractLegacyVariants(
+  pack: JavaPack,
+  bowPullConsumed?: Set<string>,
+): VariantExtraction {
   const out: VariantExtraction = { variants: [], unsupported: [] };
   for (const ns of pack.namespaces()) {
     const prefix = `assets/${ns}/models/item/`;
@@ -46,6 +52,9 @@ export function extractLegacyVariants(pack: JavaPack): VariantExtraction {
       const itemName = path.slice(prefix.length, -".json".length);
       // Overrides on non-minecraft namespaces do not attach to a vanilla item.
       const baseItem = ns === "minecraft" ? `minecraft:${itemName}` : undefined;
+
+      // Skip items fully consumed by a bow-pull group.
+      if (baseItem !== undefined && bowPullConsumed?.has(baseItem)) continue;
 
       for (const override of model.overrides) {
         const predicate = override.predicate ?? {};
@@ -126,6 +135,8 @@ const GEYSER_RANGE_PROPERTIES: Record<string, string> = {
   count: "count",
   custom_model_data: "custom_model_data",
   "bundle/fullness": "bundle_fullness",
+  "compass_angle": "compass_angle",
+  "clock": "clock",
 };
 
 interface ItemModelNode {
@@ -272,12 +283,16 @@ function flattenNode(
       for (const c of node.cases ?? []) {
         const whens = Array.isArray(c.when) ? c.when : [c.when];
         for (const when of whens) {
-          if (typeof when === "string") {
-            flattenNode(c.model, [...predicates, { type: "match", property: geyserProperty, value: when }], ctx, priority);
+          // Convert non-string when values (numbers, booleans) to strings.
+          const whenStr = typeof when === "string" ? when
+            : typeof when === "number" || typeof when === "boolean" ? String(when)
+            : undefined;
+          if (whenStr !== undefined) {
+            flattenNode(c.model, [...predicates, { type: "match", property: geyserProperty, value: whenStr }], ctx, priority);
           } else {
             ctx.out.unsupported.push({
               origin: ctx.origin,
-              reason: `select case with non-string "when" on ${property} — skipped`,
+              reason: `select case with non-primitive "when" on ${property} — skipped`,
             });
           }
         }
@@ -310,6 +325,103 @@ function flattenNode(
         reason: `unsupported item model node type "${node.type ?? "(none)"}"`,
       });
   }
+}
+
+/** One staged pull entry inside a bow-pull group. */
+export interface BowPullStage {
+  /** Pull progress threshold (0 = start of pull, 1 = fully charged). */
+  pull: number;
+  /** Model to render at this stage, as a resource location. */
+  model: string;
+}
+
+/**
+ * A group of overrides on a bow (or bow-like item) that cycle through models
+ * based on the `pulling` and `pull` predicates — detected from legacy
+ * overrides so a charge-progress render controller can be emitted.
+ */
+export interface BowPullGroup {
+  /** Vanilla item the overrides attach to, e.g. "minecraft:bow". */
+  baseItem: string;
+  /** Model shown when the bow is NOT being pulled. */
+  standbyModel: string;
+  /** Ordered pull stages (ascending pull threshold). */
+  stages: BowPullStage[];
+  /** Human-readable origin for the report. */
+  origin: string;
+}
+
+/**
+ * Detect bow-pull override groups from legacy model overrides.
+ *
+ * Vanilla `minecraft:item/bow.json` has overrides like:
+ *   { predicate: { pulling: 1 }, model: "minecraft:item/bow_pulling_0" }
+ *   { predicate: { pulling: 1, pull: 0.65 }, model: "minecraft:item/bow_pulling_1" }
+ *   { predicate: { pulling: 1, pull: 0.9 }, model: "minecraft:item/bow_pulling_2" }
+ *
+ * This groups them into a `BowPullGroup` with a standby model + ordered pull
+ * stages, and returns the grouped base items so callers can skip them in the
+ * normal variant pipeline.
+ */
+export function extractBowPullGroups(pack: JavaPack): {
+  groups: BowPullGroup[];
+  /** Keys ("namespace:itemName") consumed by bow-pull groups — skip in legacy extraction. */
+  consumedKeys: Set<string>;
+} {
+  const groups: BowPullGroup[] = [];
+  const consumedKeys = new Set<string>();
+
+  for (const ns of pack.namespaces()) {
+    const prefix = `assets/${ns}/models/item/`;
+    for (const path of pack.list({ prefix, suffix: ".json" })) {
+      const model = pack.readJson<JavaModel>(path);
+      if (model?.overrides === undefined || model.overrides.length === 0) continue;
+      const itemName = path.slice(prefix.length, -".json".length);
+      const baseItem = ns === "minecraft" ? `minecraft:${itemName}` : undefined;
+      if (baseItem === undefined) continue; // Only vanilla-namespace bow-pull for now
+
+      // Partition overrides: pulling-predicate vs everything else.
+      const pulling: { override: NonNullable<JavaModel["overrides"]>[number]; pull: number }[] = [];
+      let hasNonPulling = false;
+      for (const override of model.overrides) {
+        const predicate = override.predicate ?? {};
+        const isPulling = predicate["pulling"] !== undefined;
+        if (isPulling) {
+          // Only accept pulling:1 (actually pulling the bow).
+          if (predicate["pulling"] === 0) continue;
+          const pull = typeof predicate["pull"] === "number" ? predicate["pull"] : 0;
+          pulling.push({ override, pull });
+        } else {
+          hasNonPulling = true;
+        }
+      }
+
+      // Need at least one pulling override to form a bow-pull group.
+      // If there are non-pulling overrides (custom_model_data etc.), this
+      // item uses a different dispatch mechanism — skip.
+      if (pulling.length === 0) continue;
+      if (hasNonPulling) continue;
+
+      // Sort by pull threshold ascending.
+      pulling.sort((a, b) => a.pull - b.pull);
+
+      // The lowest pull threshold (usually 0) is the "start of pull" model;
+      // use the item's parent or the first pull model's implicit standby.
+      // For vanilla bows the standby is the item's own default model
+      // (no override matches → base model). We represent it as the
+      // item model path itself (e.g. "minecraft:item/bow").
+      const standbyModel = `${ns}:item/${itemName}`;
+      const stages: BowPullStage[] = pulling.map((p) => ({
+        pull: p.pull,
+        model: p.override.model,
+      }));
+
+      groups.push({ baseItem, standbyModel, stages, origin: path });
+      consumedKeys.add(baseItem);
+    }
+  }
+
+  return { groups, consumedKeys };
 }
 
 /** Convenience: read + lenient-parse a JSON file that may not exist. */

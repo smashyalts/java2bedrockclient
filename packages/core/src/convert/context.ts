@@ -2,6 +2,7 @@ import type { JavaPack } from "../java/javaPack.js";
 import type { VirtualFs } from "../io/vfs.js";
 import type { ConversionReport } from "../report/report.js";
 import type { Timings } from "../report/timings.js";
+import type { RgbaImage } from "../image/png.js";
 
 export interface ConvertOptions {
   /** Bedrock pack name shown in-game; defaults to Java pack description or zip name. */
@@ -68,6 +69,11 @@ export interface ConvertOptions {
    * all cores. When absent (node CLI/API) the stage encodes in-process.
    */
   pngEncoder?: PngEncoder;
+  /**
+   * Whether a plugin config zip was provided by the caller. Set by the web
+   * worker / API when config zips are present; used to suppress the nudge.
+   */
+  configZipProvided?: boolean;
 }
 
 /** A batch RGBA→PNG encoder; implemented in the web app as a worker pool. */
@@ -142,6 +148,27 @@ export interface ConversionContext {
   definitionTextures: Map<GeyserItemDefinition, string[]>;
   /** Bedrock identifiers already assigned (must be unique across definitions). */
   usedBedrockIdentifiers: Set<string>;
+  /**
+   * Shared decoded-texture cache keyed by Java VFS path. Avoids re-decoding
+   * the same PNG across the items, blocks, geometry, and optimize stages.
+   */
+  textureCache: Map<string, RgbaImage | undefined>;
+  /**
+   * Bow-pull groups detected from legacy overrides — consumed by the
+   * bowPullStage to emit charge-progress render controllers.
+   */
+  bowPullGroups: import("../java/itemVariants.js").BowPullGroup[];
+  /**
+   * Count of modern item-model assets that fell back to `modernBaseItem`
+   * because their host item wasn't declared in the pack. Used by the
+   * config-nudge to warn the user.
+   */
+  fallbackBaseItemHits: number;
+  /**
+   * Whether a plugin config zip (Oraxen/Nexo/ItemsAdder/HMCCosmetics) was
+   * provided. When false and fallbackBaseItemHits > 0, the nudge fires.
+   */
+  configZipProvided: boolean;
   /**
    * Furniture definitions for the GeyserDisplayEntity extension mappings YAML:
    * config key, host java item, bedrock identifier name (no namespace), and

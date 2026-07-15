@@ -13,6 +13,7 @@ import {
 import { texturesStage } from "./stages/texturesStage.js";
 import { entityCompositesStage } from "./stages/entityCompositesStage.js";
 import { itemsStage } from "./stages/itemsStage.js";
+import { bowPullStage } from "./stages/bowPullStage.js";
 import { geometryStage } from "./stages/geometryStage.js";
 import { armorStage } from "./stages/armorStage.js";
 import { flipbooksStage } from "./stages/flipbooksStage.js";
@@ -46,6 +47,7 @@ const STAGES: PipelineStage[] = [
   texturesStage,
   entityCompositesStage,
   itemsStage,
+  bowPullStage,
   geometryStage,
   armorStage,
   blocksStage,
@@ -98,10 +100,15 @@ export async function convertPack(
     geyserMappings: { format_version: 2, items: {} },
     geyserBlocks: {},
     pendingGeometry: [],
+    bowPullGroups: [],
+    fallbackBaseItemHits: 0,
+    configZipProvided: false,
     definitionTextures: new Map(),
     usedBedrockIdentifiers: new Set(),
+    textureCache: new Map(),
     displayEntityMappings: [],
   };
+  ctx.configZipProvided = opts.configZipProvided === true;
 
   for (const entry of unreadable) {
     ctx.report.error("ingest", entry.name, `could not extract from zip: ${entry.reason}`);
@@ -140,6 +147,16 @@ export async function convertPack(
       "furniture",
       `${ctx.displayEntityMappings.length} furniture item(s) from plugin configs`,
       ["geyser_displayentity_mappings.yml — install the GeyserDisplayEntity extension to show furniture on Bedrock"],
+    );
+  }
+
+  // Config-zip nudge: warn when many modern items fell back to a generic base
+  // item and no plugin config zip was provided to resolve real host items.
+  if (ctx.fallbackBaseItemHits >= 2 && !ctx.configZipProvided) {
+    ctx.report.approximated(
+      "config-nudge",
+      `${ctx.fallbackBaseItemHits} modern item-model assets`,
+      `${ctx.fallbackBaseItemHits} modern item-model assets were mapped under ${ctx.options.modernBaseItem} because their host item isn't declared in the pack. Upload your Oraxen/Nexo/ItemsAdder config zip (under Plugin config zips above) to get real base items and display names.`,
     );
   }
 

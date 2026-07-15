@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { wrap, proxy, type Remote } from "comlink";
+import { wrap, proxy, transfer, type Remote } from "comlink";
 import type { ConvertResult } from "@geyser-converter/core";
 import type { WorkerApi } from "./worker/convert.worker.js";
 import { DropZone } from "./components/DropZone.js";
@@ -42,12 +42,17 @@ export function App() {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const api = getWorker();
         const result = await api.convert(
-          bytes,
+          transfer(bytes, [bytes.buffer]),
           { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression },
           proxy((stage: string, done: number, total: number) => {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
-          configZips.map((c) => c.bytes),
+          configZips.map((c) => {
+            // Copy once — configZips state may be reused on a later conversion,
+            // and transfer() neuters the buffer we hand off.
+            const copy = c.bytes.slice();
+            return transfer(copy, [copy.buffer]);
+          }),
           oxipngLevel,
         );
         setPhase({ kind: "done", result, fileName: file.name, packName });
@@ -103,7 +108,7 @@ export function App() {
                   onChange={(e) => setMaxCompression(e.target.checked)}
                 />
                 Maximum compression — losslessly recompress large textures (oxipng) for ~12% more off
-                them. Runs across your CPU cores; adds a minute or two on big packs.
+                them. Runs in a background thread; adds a minute or two on big packs.
               </label>
             )}
             {optimizePack && maxCompression && (
@@ -124,6 +129,48 @@ export function App() {
                 </span>
               </label>
             )}
+          </div>
+
+          {/* Plugin config zips — always visible since they're critical for accuracy. */}
+          <div
+            style={{
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              padding: 16,
+              marginTop: 16,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <label style={labelStyle}>
+              Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items
+              and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
+              <code>plugins/Nexo/items/</code>, <code>plugins/HMCCosmetics/cosmetics/</code>) —
+              upload them together or as separate zips. Enables real base items, display names,
+              armor sets, and back-cosmetic positioning.
+              <input
+                type="file"
+                accept=".zip"
+                multiple
+                style={{ ...inputStyle, padding: 6 }}
+                onChange={async (e) => {
+                  const files = [...(e.target.files ?? [])];
+                  const loaded = await Promise.all(
+                    files.map(async (file) => ({
+                      name: file.name,
+                      bytes: new Uint8Array(await file.arrayBuffer()),
+                    })),
+                  );
+                  setConfigZips(loaded);
+                }}
+              />
+              {configZips.length > 0 && (
+                <span style={{ color: "var(--accent)" }}>
+                  ✓ {configZips.map((c) => c.name).join(", ")} loaded
+                </span>
+              )}
+            </label>
           </div>
 
           <div style={{ marginTop: 16 }}>
@@ -186,34 +233,6 @@ export function App() {
                     <option value={5}>5 frames (small pack)</option>
                     <option value={1}>1 frame (no animation, smallest)</option>
                   </select>
-                </label>
-                <label style={labelStyle}>
-                  Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items
-                  and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
-                  <code>plugins/Nexo/items/</code>, <code>plugins/HMCCosmetics/cosmetics/</code>) —
-                  upload them together or as separate zips. Enables real base items, display names,
-                  armor sets, and back-cosmetic positioning.
-                  <input
-                    type="file"
-                    accept=".zip"
-                    multiple
-                    style={{ ...inputStyle, padding: 6 }}
-                    onChange={async (e) => {
-                      const files = [...(e.target.files ?? [])];
-                      const loaded = await Promise.all(
-                        files.map(async (file) => ({
-                          name: file.name,
-                          bytes: new Uint8Array(await file.arrayBuffer()),
-                        })),
-                      );
-                      setConfigZips(loaded);
-                    }}
-                  />
-                  {configZips.length > 0 && (
-                    <span style={{ color: "var(--accent)" }}>
-                      ✓ {configZips.map((c) => c.name).join(", ")} loaded
-                    </span>
-                  )}
                 </label>
               </div>
             )}

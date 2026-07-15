@@ -12,7 +12,7 @@ function download(name: string, data: Uint8Array | string, mime: string) {
   a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 const STATUS_META: Record<string, { icon: string; color: string }> = {
@@ -123,6 +123,8 @@ export function ResultView({
           )}
         </p>
       </div>
+
+      <ConfigNudgeBanner entries={result.report.entries} onReset={onReset} />
 
       <PerfPanel timings={result.timings} />
 
@@ -248,6 +250,50 @@ function PerfBar({ label, ms, total }: { label: string; ms: number; total: numbe
       <div style={{ height: 4, background: "var(--bg)", borderRadius: 2, marginTop: 2 }}>
         <div style={{ height: 4, width: `${pct}%`, background: "var(--accent)", borderRadius: 2 }} />
       </div>
+    </div>
+  );
+}
+
+function ConfigNudgeBanner({
+  entries,
+  onReset,
+}: {
+  entries: ConvertResult["report"]["entries"];
+  onReset: () => void;
+}) {
+  const nudge = entries.find((e) => e.stage === "config-nudge");
+  if (nudge === undefined) return null;
+  return (
+    <div
+      style={{
+        background: "var(--panel)",
+        border: "1px solid var(--warn)",
+        borderRadius: 16,
+        padding: 20,
+        marginBottom: 20,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <strong style={{ color: "var(--warn)", fontSize: 14 }}>
+        Items may not map correctly — upload a plugin config zip
+      </strong>
+      <p style={{ color: "var(--muted)", margin: 0, fontSize: 13 }}>
+        {nudge.detail}
+      </p>
+      <button
+        onClick={onReset}
+        style={{
+          ...buttonStyle,
+          background: "var(--warn)",
+          alignSelf: "flex-start",
+          fontSize: 13,
+          padding: "6px 16px",
+        }}
+      >
+        Convert again with config
+      </button>
     </div>
   );
 }

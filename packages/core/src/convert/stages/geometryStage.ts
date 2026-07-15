@@ -4,7 +4,7 @@ import { buildGeometry } from "../../bedrock/geometry.js";
 import { buildDisplayAnimations } from "../../bedrock/animations.js";
 import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
 import { parseLenientJson } from "../../java/json.js";
-import { alphaBleed, decodePng, encodePng, type RgbaImage } from "../../image/png.js";
+import { alphaBleed, decodeCached, decodePng, encodePng, type RgbaImage } from "../../image/png.js";
 import { timeOp, timeOpAsync } from "../../report/timings.js";
 import { renderModelIcon } from "../../image/modelRender.js";
 import { defaultUv } from "../../bedrock/geometry.js";
@@ -13,6 +13,7 @@ import { parseResourceLocation } from "../../java/javaPack.js";
 import { fastHash } from "../../util/hash.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
+import { resolveTextureRef } from "../../resolve/modelResolver.js";
 
 /** 2x2 magenta placeholder for missing textures (classic "missing texture" look). */
 function missingTexture(): RgbaImage {
@@ -44,10 +45,13 @@ interface McmetaAnimation {
 
 /** Linear blend of two same-size images (t=0 → a, t=1 → b), as Java's interpolate does. */
 function blendImages(a: RgbaImage, b: RgbaImage, t: number): RgbaImage {
+  if (a.width !== b.width || a.height !== b.height) {
+    // Size mismatch — can't blend, return a copy of a (resting frame).
+    return { width: a.width, height: a.height, data: a.data.slice() };
+  }
   const out = new Uint8Array(a.data.length);
-  const bd = b.data.length === a.data.length ? b.data : a.data;
   for (let i = 0; i < a.data.length; i++) {
-    out[i] = Math.round(a.data[i]! + (bd[i]! - a.data[i]!) * t);
+    out[i] = Math.round(a.data[i]! + (b.data[i]! - a.data[i]!) * t);
   }
   return { width: a.width, height: a.height, data: out };
 }
@@ -81,9 +85,8 @@ function loadTexture(
 
 function loadTextureUncached(ctx: ConversionContext, textureId: string): LoadedTexture | undefined {
   const path = ctx.java.assetPath("textures", textureId, ".png");
-  const bytes = ctx.java.read(path);
-  if (bytes === undefined) return undefined;
-  const image = decodePng(bytes);
+  const image = decodeCached(ctx.java.read.bind(ctx.java), path, ctx.textureCache);
+  if (image === undefined) return undefined;
 
   const metaText = ctx.java.readText(path + ".mcmeta");
   const meta = metaText !== undefined ? parseLenientJson<McmetaAnimation>(metaText) : undefined;
@@ -420,17 +423,7 @@ function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
 }
 
 function resolveFaceTexture(textures: Record<string, string>, ref: string): string | undefined {
-  let value = ref;
-  const seen = new Set<string>();
-  while (value.startsWith("#")) {
-    const key = value.slice(1);
-    if (seen.has(key)) return undefined;
-    seen.add(key);
-    const next = textures[key];
-    if (next === undefined) return undefined;
-    value = next;
-  }
-  return value;
+  return resolveTextureRef(textures, ref);
 }
 
 function pickIcon(

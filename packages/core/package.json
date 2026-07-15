@@ -15,13 +15,11 @@
   },
   "dependencies": {
     "@gfx/zopfli": "^1.0.15",
-    "@jsquash/oxipng": "^2.3.0",
     "@noble/hashes": "^1.5.0",
     "fast-png": "^6.2.0",
-    "fflate": "^0.8.2",
+    "fflate": "^0.8.3",
     "js-yaml": "^5.2.1",
     "jsonc-parser": "^3.3.1",
-    "pako": "^3.0.1",
     "upng-js": "^2.1.0"
   },
   "devDependencies": {

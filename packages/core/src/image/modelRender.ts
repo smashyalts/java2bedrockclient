@@ -105,7 +105,8 @@ function renderModelIconUntimed(
         depth: viewed.reduce((acc, v) => acc + v[2], 0) / 4,
         uv: tex.uv,
         image: tex.image,
-        shade: FACE_SHADE[faceName],
+        // shade: false → full brightness (no face darkening).
+        shade: element.shade === false ? 1.0 : FACE_SHADE[faceName],
       });
     }
   }

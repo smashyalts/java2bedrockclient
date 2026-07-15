@@ -25,7 +25,25 @@ export const flipbooksStage: PipelineStage = {
       const texturePath = path.slice(0, -".mcmeta".length);
 
       if (!texturePath.startsWith("assets/minecraft/textures/block/")) {
-        if (!texturePath.includes("/textures/item/")) {
+        // Custom namespace block textures converted by blocksStage can also
+        // be animated — emit flipbook entries for them.
+        const customBlockMatch = texturePath.match(/^assets\/([^/]+)\/textures\/block\/(.+)$/);
+        if (customBlockMatch) {
+          const flipbookTexture = `textures/${customBlockMatch[1]}/block/${customBlockMatch[2]!.slice(0, -".png".length)}`;
+          const atlasTile = customBlockMatch[2]!.slice(0, -".png".length).replace(/\//g, ".");
+          const anim = meta.animation;
+          const entry: Record<string, unknown> = {
+            flipbook_texture: flipbookTexture,
+            atlas_tile: atlasTile,
+            ticks_per_frame: anim.frametime ?? 1,
+          };
+          if (anim.frames !== undefined) {
+            entry["frames"] = anim.frames.map((f) => (typeof f === "number" ? f : f.index));
+          }
+          if (anim.interpolate === true) entry["blend_frames"] = true;
+          flipbooks.push(entry);
+          ctx.report.converted("flipbooks", path, ["textures/flipbook_textures.json"]);
+        } else if (!texturePath.includes("/textures/item/")) {
           ctx.report.skipped(
             "flipbooks",
             path,

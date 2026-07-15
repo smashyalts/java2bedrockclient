@@ -1,7 +1,6 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { parseLenientJson } from "../../java/json.js";
 import { decodePng, encodePng, type RgbaImage } from "../../image/png.js";
-import { zopfliRecompressPng } from "../../image/zopfliPng.js";
 import { fastHash } from "../../util/hash.js";
 
 /**
@@ -53,13 +52,16 @@ export const optimizeStage: PipelineStage = {
       swept++;
     }
 
-    // --- 1. Merge duplicate generated textures. ---
+    // --- 1. Merge duplicate textures (all paths, not just geyser_custom). ---
     // References use the path without extension (attachables, item_texture,
     // terrain_texture, render controllers all point at "textures/..../name").
     const byHash = new Map<string, string>();
     const rewrites = new Map<string, string>();
     let merged = 0;
-    for (const path of ctx.bedrock.list({ prefix: "textures/geyser_custom/", suffix: ".png" })) {
+    for (const path of ctx.bedrock.list({ prefix: "textures/", suffix: ".png" })) {
+      // Vanilla-root textures are loaded by path convention; merging them
+      // would break path-based lookups even if byte-identical.
+      if (isVanillaTexturePath(path)) continue;
       const bytes = ctx.bedrock.read(path)!;
       const hash = fastHash(bytes);
       const canonical = byHash.get(hash);
@@ -108,18 +110,23 @@ export const optimizeStage: PipelineStage = {
       });
     }
 
-    // --- 3. Rewrite references + minify all JSON. ---
-    for (const path of ctx.bedrock.list({ suffix: ".json" })) {
-      const text = ctx.bedrock.readText(path);
-      if (text === undefined) continue;
-      let value: unknown;
-      try {
-        value = parseLenientJson(text);
-      } catch {
-        continue; // never corrupt a file we can't parse
+    // --- 3. Rewrite references (only when textures were merged). ---
+    // JSON minification is already handled by the packaging stage when
+    // optimizePack is on — no need to re-parse/re-stringify here unless
+    // we have texture path rewrites to apply.
+    if (rewrites.size > 0) {
+      for (const path of ctx.bedrock.list({ suffix: ".json" })) {
+        const text = ctx.bedrock.readText(path);
+        if (text === undefined) continue;
+        let value: unknown;
+        try {
+          value = parseLenientJson(text);
+        } catch {
+          continue; // never corrupt a file we can't parse
+        }
+        value = rewriteStrings(value, rewrites);
+        ctx.bedrock.writeText(path, JSON.stringify(value));
       }
-      if (rewrites.size > 0) value = rewriteStrings(value, rewrites);
-      ctx.bedrock.writeText(path, JSON.stringify(value));
     }
 
     // --- 4. Opt-in zopfli recompression of larger PNGs (maxCompression). ---
@@ -151,6 +158,8 @@ export const optimizeStage: PipelineStage = {
         results.forEach((r, i) => apply(i, r));
       } else {
         // In-process sequential fallback (node CLI/API).
+        // Dynamic import so the browser build never loads @gfx/zopfli's wasm.
+        const { zopfliRecompressPng } = await import("../../image/zopfliPng.js");
         let done = 0;
         for (let i = 0; i < candidates.length; i++) {
           ctx.progress("optimize", ++done, candidates.length);

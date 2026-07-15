@@ -5,6 +5,11 @@
  */
 export class VirtualFs {
   private files = new Map<string, Uint8Array>();
+  private sortedPaths: string[] | null = null;
+
+  private invalidate(): void {
+    this.sortedPaths = null;
+  }
 
   static normalize(path: string): string {
     return path.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -26,6 +31,7 @@ export class VirtualFs {
 
   write(path: string, data: Uint8Array): void {
     this.files.set(VirtualFs.normalize(path), data);
+    this.invalidate();
   }
 
   writeText(path: string, text: string): void {
@@ -37,20 +43,26 @@ export class VirtualFs {
   }
 
   delete(path: string): boolean {
-    return this.files.delete(VirtualFs.normalize(path));
+    const deleted = this.files.delete(VirtualFs.normalize(path));
+    if (deleted) this.invalidate();
+    return deleted;
   }
 
   /** All paths, optionally filtered by prefix and/or suffix. */
   list(options?: { prefix?: string; suffix?: string }): string[] {
     const prefix = options?.prefix ? VirtualFs.normalize(options.prefix) : undefined;
     const suffix = options?.suffix;
+    if (this.sortedPaths === null) {
+      this.sortedPaths = [...this.files.keys()].sort();
+    }
+    if (prefix === undefined && suffix === undefined) return [...this.sortedPaths];
     const out: string[] = [];
-    for (const path of this.files.keys()) {
+    for (const path of this.sortedPaths) {
       if (prefix !== undefined && !path.startsWith(prefix)) continue;
       if (suffix !== undefined && !path.endsWith(suffix)) continue;
       out.push(path);
     }
-    return out.sort();
+    return out;
   }
 
   get size(): number {

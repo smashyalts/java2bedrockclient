@@ -35,19 +35,14 @@ export class ConversionReport {
     this.add({ stage, source, status: "error", detail });
   }
 
-  count(status: ConversionStatus): number {
-    return this.entries.filter((e) => e.status === status).length;
-  }
-
   toJSON(): { summary: Record<ConversionStatus, number>; entries: ReportEntry[] } {
-    return {
-      summary: {
-        converted: this.count("converted"),
-        approximated: this.count("approximated"),
-        skipped: this.count("skipped"),
-        error: this.count("error"),
-      },
-      entries: this.entries,
+    const summary: Record<ConversionStatus, number> = {
+      converted: 0,
+      approximated: 0,
+      skipped: 0,
+      error: 0,
     };
+    for (const e of this.entries) summary[e.status]++;
+    return { summary, entries: this.entries };
   }
 }

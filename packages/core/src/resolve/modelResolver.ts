@@ -105,20 +105,26 @@ export function resolveModel(pack: JavaPack, id: string): ResolvedModel | undefi
   return { id, kind, textures, elements, display, terminalParent, chain };
 }
 
+/** Resolve a single "#name" texture reference to a resource location, or undefined on cycle/missing. */
+export function resolveTextureRef(textures: Record<string, string>, ref: string): string | undefined {
+  let value = ref;
+  const seen = new Set<string>();
+  while (value.startsWith("#")) {
+    const key = value.slice(1);
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    const next = textures[key];
+    if (next === undefined) return undefined;
+    value = next;
+  }
+  return value;
+}
+
 /** Resolve "#name" indirections inside a texture map, in place. */
 function resolveTextureRefs(textures: Record<string, string>): void {
   for (const key of Object.keys(textures)) {
-    let value = textures[key]!;
-    const seen = new Set<string>();
-    while (value.startsWith("#")) {
-      const ref = value.slice(1);
-      if (seen.has(ref)) break; // cycle
-      seen.add(ref);
-      const next = textures[ref];
-      if (next === undefined) break;
-      value = next;
-    }
-    textures[key] = value;
+    const resolved = resolveTextureRef(textures, textures[key]!);
+    if (resolved !== undefined) textures[key] = resolved;
   }
 }
 
