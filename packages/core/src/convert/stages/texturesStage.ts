@@ -2,6 +2,19 @@ import type { ConversionContext, PipelineStage } from "../context.js";
 import { remapVanillaTexture } from "../../data/vanillaTextureMap.js";
 
 /**
+ * Real vanilla texture categories. Anything else directly under
+ * assets/minecraft/textures/ is a pack dumping CUSTOM content into the minecraft
+ * namespace (armour sets, glyph sheets, emotes) — those are owned by the item /
+ * armour / font stages, not a "skipped vanilla" category.
+ */
+const VANILLA_TEXTURE_CATEGORIES = new Set([
+  "block", "item", "entity", "environment", "colormap", "misc", "models", "map",
+  "gui", "particle", "painting", "font", "mob_effect", "trims", "effect",
+]);
+/** Vanilla categories a dedicated stage converts from source — no skip report needed. */
+const HANDLED_BY_STAGE = new Set(["painting", "font"]);
+
+/**
  * Copies vanilla-namespace textures into their Bedrock locations using the
  * remap table. Non-minecraft namespaces are handled by the custom item stages
  * (their textures only matter where models reference them), but we still copy
@@ -19,10 +32,25 @@ export const texturesStage: PipelineStage = {
       if (path.startsWith("assets/minecraft/textures/")) {
         const remap = remapVanillaTexture(path);
         if (remap === undefined) {
-          // Composite or special-cased category — a dedicated stage owns it.
-          // Only report if no stage will ever pick it up (gui/painting/particle
-          // handled later; font intentionally deferred).
-          ctx.report.skipped("textures", path, "special category — handled by a dedicated stage or not yet supported");
+          const category = path.slice("assets/minecraft/textures/".length).split("/")[0] ?? "";
+          if (!VANILLA_TEXTURE_CATEGORIES.has(category)) {
+            // Custom content dumped under the minecraft namespace (armour sets,
+            // glyph sheets). The item/armour/font stages re-encode whatever they
+            // reference; copy the source so any path reference survives, and let
+            // the optimizer's dead-file sweep drop the rest. No report noise —
+            // the owning stage reports the real conversion.
+            const data = ctx.java.read(path);
+            if (data !== undefined) {
+              ctx.bedrock.write(`textures/${path.slice("assets/minecraft/textures/".length)}`, data);
+            }
+            continue;
+          }
+          // A real vanilla category we don't remap here: painting/font are
+          // converted from source by their own stage (silent); the rest have no
+          // Bedrock equivalent yet.
+          if (!HANDLED_BY_STAGE.has(category)) {
+            ctx.report.skipped("textures", path, `vanilla ${category} textures have no Bedrock equivalent yet`);
+          }
           continue;
         }
         const data = ctx.java.read(path);

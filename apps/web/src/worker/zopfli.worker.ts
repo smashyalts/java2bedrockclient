@@ -13,19 +13,18 @@ import optimise from "@jsquash/oxipng/optimise.js";
 interface Job {
   id: number;
   bytes: Uint8Array;
+  /** oxipng effort level 1–6; higher = more filter/deflate trials (slower, smaller). */
+  level: number;
 }
 
-/** oxipng effort level 1–6; higher = more filter/deflate trials (slower, smaller). */
-const LEVEL = 4;
-
 self.onmessage = async (e: MessageEvent<Job>) => {
-  const { id, bytes } = e.data;
+  const { id, bytes, level } = e.data;
   let result: Uint8Array | undefined;
   try {
     // oxipng wants a plain ArrayBuffer holding exactly this PNG's bytes.
     const copy = bytes.slice();
     const out = new Uint8Array(
-      await optimise(copy.buffer as ArrayBuffer, { level: LEVEL, interlace: false, optimiseAlpha: false }),
+      await optimise(copy.buffer as ArrayBuffer, { level, interlace: false, optimiseAlpha: false }),
     );
     // Keep only if it actually shrank (it re-optimizes, never lossy).
     result = out.length < bytes.length ? out : undefined;

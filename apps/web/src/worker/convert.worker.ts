@@ -16,11 +16,13 @@ export interface WorkerApi {
     onProgress: (stage: string, done: number, total: number) => void,
     /** Optional plugin config zips (Nexo/Oraxen/ItemsAdder/HMCCosmetics, any mix). */
     configZips?: Uint8Array[],
+    /** oxipng effort level (4–6) for the max-compression pass. */
+    oxipngLevel?: number,
   ): Promise<ConvertResult & { hintCount?: number }>;
 }
 
 const api: WorkerApi = {
-  async convert(zipBytes, options, onProgress, configZips) {
+  async convert(zipBytes, options, onProgress, configZips, oxipngLevel) {
     let hintCount: number | undefined;
     if (configZips !== undefined && configZips.length > 0) {
       const hints = parseOraxenConfigZips(configZips);
@@ -41,7 +43,7 @@ const api: WorkerApi = {
     const encodePool = createEncodePool(poolSize());
     // Parallelize the slow zopfli max-compression pass across a worker pool so
     // it finishes in ~1/cores of the single-threaded time.
-    const pool = options.maxCompression ? createZopfliPool(poolSize()) : undefined;
+    const pool = options.maxCompression ? createZopfliPool(poolSize(), oxipngLevel ?? 4) : undefined;
     options = { ...options, pngEncoder: encodePool };
     if (pool !== undefined) options = { ...options, recompressor: pool };
     try {

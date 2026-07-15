@@ -19,6 +19,7 @@ export function App() {
   const [maxAnimationFrames, setMaxAnimationFrames] = useState(0);
   const [optimizePack, setOptimizePack] = useState(true);
   const [maxCompression, setMaxCompression] = useState(false);
+  const [oxipngLevel, setOxipngLevel] = useState(4);
   const [showOptions, setShowOptions] = useState(false);
   const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
   const workerRef = useRef<Remote<WorkerApi> | null>(null);
@@ -47,13 +48,14 @@ export function App() {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
           configZips.map((c) => c.bytes),
+          oxipngLevel,
         );
         setPhase({ kind: "done", result, fileName: file.name, packName });
       } catch (err) {
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
-    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, configZips],
+    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, oxipngLevel, configZips],
   );
 
   return (
@@ -150,6 +152,24 @@ export function App() {
                     />
                     Maximum compression — losslessly recompress large textures (oxipng) for ~12%
                     more off them. Runs across your CPU cores; adds a minute or two on big packs.
+                  </label>
+                )}
+                {optimizePack && maxCompression && (
+                  <label style={labelStyle}>
+                    Compression effort — level {oxipngLevel}{" "}
+                    {oxipngLevel === 4 ? "(fastest)" : oxipngLevel === 6 ? "(smallest, slowest)" : "(balanced)"}
+                    <input
+                      type="range"
+                      min={4}
+                      max={6}
+                      step={1}
+                      value={oxipngLevel}
+                      onChange={(e) => setOxipngLevel(Number(e.target.value))}
+                      style={{ width: "100%" }}
+                    />
+                    <span style={{ fontSize: 12 }}>
+                      Higher levels trade minutes for a few % more; the gain past 4 is usually small.
+                    </span>
                   </label>
                 )}
                 <label style={labelStyle}>

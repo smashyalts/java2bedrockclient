@@ -25,7 +25,7 @@ function spawn(): Worker {
  * Each job is bounded by a timeout; a worker that hangs on a file is terminated
  * and replaced, so the pass always makes progress and never freezes the UI.
  */
-export function createZopfliPool(size: number): PngRecompressor & { dispose(): void } {
+export function createZopfliPool(size: number, level = 4): PngRecompressor & { dispose(): void } {
   let workers: Worker[] = [];
   for (let i = 0; i < Math.max(1, size); i++) workers.push(spawn());
 
@@ -83,7 +83,7 @@ export function createZopfliPool(size: number): PngRecompressor & { dispose(): v
           // Do NOT transfer the input buffer — the VFS still holds it and needs
           // it intact when zopfli returns undefined (no shrink). Structured
           // clone copies it to the worker; the (fresh) result is transferred back.
-          worker.postMessage({ id, bytes: pngs[id] });
+          worker.postMessage({ id, bytes: pngs[id], level });
         };
 
         workers.forEach((w, slot) => pump(w, slot));
