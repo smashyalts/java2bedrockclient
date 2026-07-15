@@ -86,64 +86,94 @@ export function buildFlipbookRenderController(options: {
 }
 
 /**
- * Render controller that selects a texture frame based on charge progress.
- * Used for bow-pull (and similar charge-based) held items.
+ * Render controller that selects a texture frame from bow draw progress.
  *
- * The texture index advances from 0 (resting) through N-1 (fully charged)
- * as the player draws the bow. The charge fraction is computed in the
- * attachable's pre_animation script (`v.charge_amount`) and stored on
- * the context; this controller indexes into the texture array by
- * `math.floor(v.charge_amount * (N - 1))`, clamped to [0, N-1].
+ * Frame 0 is the resting look (not drawing). Frames 1..N are the pull stages
+ * in ascending threshold order. `v.charge_amount` (set in the attachable's
+ * pre_animation, = Bedrock use-duration mapped into Java's post-scale [0,1]
+ * domain) is compared against each stage threshold, highest first, exactly as
+ * Java's range_dispatch picks "the highest threshold ≤ value".
  */
 export function buildBowPullRenderController(options: {
   /** e.g. "controller.render.gc_bow". */
   id: string;
-  /** Texture shortnames in charge order: [standby, pulling_0, pulling_1, pulling_2]. */
+  /** Texture shortnames: [standby, stage0, stage1, …] (standby first). */
   frameShortnames: string[];
+  /** Thresholds for stages 1..N (same length as frameShortnames minus the standby). */
+  stageThresholds: number[];
+  /**
+   * Geometry shortnames parallel to frameShortnames, when each pull stage has
+   * its own 3D mesh (custom-model bows). Omit for flat sprite bows that share
+   * one geometry.
+   */
+  geometryShortnames?: string[];
 }): object {
-  const count = options.frameShortnames.length;
-  return {
-    format_version: "1.10.0",
-    render_controllers: {
-      [options.id]: {
-        arrays: {
-          textures: {
-            "Array.frames": options.frameShortnames.map((n) => `Texture.${n}`),
-          },
-        },
-        geometry: "Geometry.default",
-        materials: [{ "*": "Material.default" }],
-        textures: [
-          `Array.frames[math.min(${count - 1}, math.floor(v.charge_amount * ${count}))]`,
-        ],
+  // Build a ternary ladder so the HIGHEST matching threshold wins (Java's
+  // range_dispatch picks the highest threshold ≤ value). Wrapping lowest→highest
+  // leaves the highest threshold as the outermost (first-evaluated) test.
+  // Not drawing (charge <= 0) → frame 0 (standby).
+  const n = options.stageThresholds.length;
+  let expr = "0";
+  for (let i = 0; i < n; i++) {
+    const frameIndex = i + 1; // frame 0 is standby
+    expr = `(v.charge_amount >= ${options.stageThresholds[i]!.toFixed(4)} ? ${frameIndex} : ${expr})`;
+  }
+  expr = `(v.charge_amount <= 0.0 ? 0 : ${expr})`;
+  const controller: Record<string, unknown> = {
+    arrays: {
+      textures: {
+        "Array.frames": options.frameShortnames.map((name) => `Texture.${name}`),
       },
     },
+    geometry: "Geometry.default",
+    materials: [{ "*": "Material.default" }],
+    textures: [`Array.frames[${expr}]`],
+  };
+  if (options.geometryShortnames !== undefined) {
+    (controller.arrays as Record<string, unknown>).geometries = {
+      "Array.geos": options.geometryShortnames.map((name) => `Geometry.${name}`),
+    };
+    controller.geometry = `Array.geos[${expr}]`;
+  }
+  return {
+    format_version: "1.10.0",
+    render_controllers: { [options.id]: controller },
   };
 }
 
 /**
  * Builds a Bedrock attachable for a bow-pull item. Same structure as
- * `buildItemAttachable` but injects a `v.charge_amount` pre_animation
- * variable and references the bow-pull render controller.
+ * `buildItemAttachable` but computes `v.charge_amount` each frame from the
+ * held item's use duration and references the bow-pull render controller.
  */
 export function buildBowPullAttachable(options: {
   /** e.g. "geyser_custom:bow" — must match the mapping's bedrock_identifier. */
   identifier: string;
   material: string;
-  /** Texture path without extension, e.g. "textures/geyser_custom/bow_standby". */
-  texture: string;
-  /** e.g. "geometry.geyser_custom.bow". */
-  geometry: string;
+  /**
+   * Texture shortname → path (without extension). Must include "default"
+   * (the standby texture); pull stages are the remaining entries.
+   */
+  textures: Record<string, string>;
+  /**
+   * Geometry shortname → geometry id. Must include "default". A single entry
+   * is a flat sprite bow (one shared mesh); multiple entries give each pull
+   * stage its own 3D mesh, selected by the render controller.
+   */
+  geometries: Record<string, string>;
   /** animation key → animation identifier. */
   animations: Record<string, string>;
-  /** Extra texture shortname → path entries (pull-stage textures). */
-  extraTextures: Record<string, string>;
   /** Custom render controller id (bow-pull). */
   renderController: string;
-  /** Max use duration in ticks (Java: bow=72000, crossbow=25). Default 72000. */
-  maxUseDuration?: number;
+  /**
+   * Java range_dispatch scale on the pull property (bow use_duration = 0.05).
+   * Bedrock `query.main_hand_item_use_duration` is in seconds; a 20-tick draw
+   * is 1s, so charge = use_duration_seconds * (20 * scale) reproduces Java's
+   * post-scale value (= use_duration_seconds for the usual 0.05 scale).
+   */
+  scale: number;
 }): object {
-  const maxTicks = options.maxUseDuration ?? 72000;
+  const chargeMultiplier = 20 * options.scale;
   return {
     format_version: "1.10.0",
     "minecraft:attachable": {
@@ -154,22 +184,20 @@ export function buildBowPullAttachable(options: {
           enchanted: options.material,
         },
         textures: {
-          default: options.texture,
+          ...options.textures,
           enchanted: "textures/misc/enchanted_item_glint",
-          ...options.extraTextures,
         },
         geometry: {
-          default: options.geometry,
+          ...options.geometries,
         },
         scripts: {
           pre_animation: [
             "v.main_hand = c.item_slot == 'main_hand';",
             "v.off_hand = c.item_slot == 'off_hand';",
             "v.head = c.item_slot == 'head';",
-            // Charge fraction: 0 at rest, 1 when fully drawn.
-            // q.use_duration grows as the player holds use; maxUseDuration
-            // is the Java item's max-use ticks (bow=72000, crossbow=25).
-            `v.charge_amount = math.min(1.0, q.use_duration / ${maxTicks}.0);`,
+            // Draw progress in Java's post-scale [0,1] domain. The query is 0
+            // when the item isn't being used, and grows while it's drawn.
+            `v.charge_amount = q.main_hand_item_use_duration * ${chargeMultiplier.toFixed(4)};`,
           ],
           animate: [
             { thirdperson_main_hand: "v.main_hand && !c.is_first_person" },

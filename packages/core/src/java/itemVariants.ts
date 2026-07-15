@@ -157,8 +157,12 @@ interface ItemsAsset {
   model?: ItemModelNode;
 }
 
-/** Extract variants from modern item definition assets (assets/&lt;ns&gt;/items/*.json). */
-export function extractModernVariants(pack: JavaPack): VariantExtraction {
+/** Extract variants from modern item definition assets (assets/&lt;ns&gt;/items/*.json).
+ * `bowPullConsumed` — item-model ids already handled by a bow-pull group are skipped. */
+export function extractModernVariants(
+  pack: JavaPack,
+  bowPullConsumed?: Set<string>,
+): VariantExtraction {
   const out: VariantExtraction = { variants: [], unsupported: [] };
   for (const ns of pack.namespaces()) {
     const prefix = `assets/${ns}/items/`;
@@ -166,6 +170,7 @@ export function extractModernVariants(pack: JavaPack): VariantExtraction {
       const asset = pack.readJson<ItemsAsset>(path);
       const name = path.slice(prefix.length, -".json".length);
       const itemModelId = `${ns}:${name}`;
+      if (bowPullConsumed?.has(itemModelId)) continue;
       if (asset?.model === undefined) {
         out.unsupported.push({ origin: path, reason: "items asset without model node" });
         continue;
@@ -336,41 +341,85 @@ export interface BowPullStage {
 }
 
 /**
- * A group of overrides on a bow (or bow-like item) that cycle through models
- * based on the `pulling` and `pull` predicates — detected from legacy
- * overrides so a charge-progress render controller can be emitted.
+ * A group of models on a bow-like item that cycle through frames as the item
+ * is drawn — detected from either legacy `pulling`/`pull` overrides or a modern
+ * `condition(using_item) → range_dispatch(use_duration)` item definition — so a
+ * charge-progress render controller can be emitted.
  */
 export interface BowPullGroup {
-  /** Vanilla item the overrides attach to, e.g. "minecraft:bow". */
-  baseItem: string;
-  /** Model shown when the bow is NOT being pulled. */
+  /** Vanilla host item (e.g. "minecraft:bow"). Known for legacy; undefined for
+   * modern (resolved from config hints / default in the stage). */
+  baseItem?: string;
+  /** Modern item-model id (e.g. "oraxen:abyss_bow") — hint lookup + naming. */
+  itemModelId?: string;
+  /** Value for the Geyser mapping `model` field: legacy → "ns:item/name",
+   * modern → the item-model id. */
+  modelKey: string;
+  /** True for modern item-definition bows (Geyser `type: "definition"`). */
+  isModern: boolean;
+  /** Model shown when the bow is NOT being drawn. */
   standbyModel: string;
   /** Ordered pull stages (ascending pull threshold). */
   stages: BowPullStage[];
+  /**
+   * Java range_dispatch scale on the pull property (bow `use_duration` = 0.05).
+   * The stage thresholds are already in the post-scale [0,1] domain; this is
+   * kept so the render controller can map Bedrock's use-duration query to the
+   * same domain.
+   */
+  scale: number;
   /** Human-readable origin for the report. */
   origin: string;
 }
 
+/** Pick a single representative standby model from an on_false node. */
+function standbyModelOf(node: ItemModelNode | undefined): string | undefined {
+  if (node === undefined) return undefined;
+  const type = (node.type ?? "").replace(/^minecraft:/, "");
+  if (type === "model" && typeof node.model === "string") return node.model;
+  return undefined; // select/composite/etc. → not a plain-standby bow
+}
+
+/** Build ordered pull stages from a range_dispatch node (fallback = pull 0). */
+function pullStagesOf(node: ItemModelNode): BowPullStage[] | undefined {
+  const stages: BowPullStage[] = [];
+  const fallbackModel = standbyModelOf(node.fallback);
+  if (fallbackModel !== undefined) stages.push({ pull: 0, model: fallbackModel });
+  for (const entry of node.entries ?? []) {
+    const m = standbyModelOf(entry.model);
+    if (m === undefined) return undefined; // 3D / nested stage model — not supported here
+    stages.push({ pull: entry.threshold, model: m });
+  }
+  stages.sort((a, b) => a.pull - b.pull);
+  return stages.length >= 2 ? stages : undefined;
+}
+
 /**
- * Detect bow-pull override groups from legacy model overrides.
+ * Detect bow-pull groups from both legacy overrides and modern item definitions.
  *
- * Vanilla `minecraft:item/bow.json` has overrides like:
- *   { predicate: { pulling: 1 }, model: "minecraft:item/bow_pulling_0" }
- *   { predicate: { pulling: 1, pull: 0.65 }, model: "minecraft:item/bow_pulling_1" }
- *   { predicate: { pulling: 1, pull: 0.9 }, model: "minecraft:item/bow_pulling_2" }
+ * Legacy `minecraft:item/bow.json`:
+ *   { predicate: { pulling: 1 }, model: "…/bow_pulling_0" }
+ *   { predicate: { pulling: 1, pull: 0.65 }, model: "…/bow_pulling_1" }
  *
- * This groups them into a `BowPullGroup` with a standby model + ordered pull
- * stages, and returns the grouped base items so callers can skip them in the
- * normal variant pipeline.
+ * Modern `assets/oraxen/items/abyss_bow.json`:
+ *   condition(using_item){ on_false: model(bow), on_true: range_dispatch(use_duration){…} }
+ *
+ * Only bows whose resting (on_false) look is a single plain model are handled —
+ * crossbows put a `select(charge_type)` there (charged-arrow/rocket states),
+ * which the normal pipeline already converts, so they stay on that path.
  */
 export function extractBowPullGroups(pack: JavaPack): {
   groups: BowPullGroup[];
-  /** Keys ("namespace:itemName") consumed by bow-pull groups — skip in legacy extraction. */
+  /** Legacy vanilla item keys consumed — skip in legacy override extraction. */
   consumedKeys: Set<string>;
+  /** Modern item-model ids consumed — skip in modern definition extraction. */
+  consumedModernKeys: Set<string>;
 } {
   const groups: BowPullGroup[] = [];
   const consumedKeys = new Set<string>();
+  const consumedModernKeys = new Set<string>();
 
+  // --- Legacy overrides (vanilla-namespace pulling bows). ---
   for (const ns of pack.namespaces()) {
     const prefix = `assets/${ns}/models/item/`;
     for (const path of pack.list({ prefix, suffix: ".json" })) {
@@ -378,16 +427,13 @@ export function extractBowPullGroups(pack: JavaPack): {
       if (model?.overrides === undefined || model.overrides.length === 0) continue;
       const itemName = path.slice(prefix.length, -".json".length);
       const baseItem = ns === "minecraft" ? `minecraft:${itemName}` : undefined;
-      if (baseItem === undefined) continue; // Only vanilla-namespace bow-pull for now
+      if (baseItem === undefined) continue; // Only vanilla-namespace legacy bow-pull
 
-      // Partition overrides: pulling-predicate vs everything else.
       const pulling: { override: NonNullable<JavaModel["overrides"]>[number]; pull: number }[] = [];
       let hasNonPulling = false;
       for (const override of model.overrides) {
         const predicate = override.predicate ?? {};
-        const isPulling = predicate["pulling"] !== undefined;
-        if (isPulling) {
-          // Only accept pulling:1 (actually pulling the bow).
+        if (predicate["pulling"] !== undefined) {
           if (predicate["pulling"] === 0) continue;
           const pull = typeof predicate["pull"] === "number" ? predicate["pull"] : 0;
           pulling.push({ override, pull });
@@ -395,33 +441,62 @@ export function extractBowPullGroups(pack: JavaPack): {
           hasNonPulling = true;
         }
       }
+      if (pulling.length === 0 || hasNonPulling) continue;
 
-      // Need at least one pulling override to form a bow-pull group.
-      // If there are non-pulling overrides (custom_model_data etc.), this
-      // item uses a different dispatch mechanism — skip.
-      if (pulling.length === 0) continue;
-      if (hasNonPulling) continue;
-
-      // Sort by pull threshold ascending.
       pulling.sort((a, b) => a.pull - b.pull);
-
-      // The lowest pull threshold (usually 0) is the "start of pull" model;
-      // use the item's parent or the first pull model's implicit standby.
-      // For vanilla bows the standby is the item's own default model
-      // (no override matches → base model). We represent it as the
-      // item model path itself (e.g. "minecraft:item/bow").
       const standbyModel = `${ns}:item/${itemName}`;
-      const stages: BowPullStage[] = pulling.map((p) => ({
-        pull: p.pull,
-        model: p.override.model,
-      }));
-
-      groups.push({ baseItem, standbyModel, stages, origin: path });
+      const stages: BowPullStage[] = pulling.map((p) => ({ pull: p.pull, model: p.override.model }));
+      groups.push({
+        baseItem,
+        modelKey: standbyModel,
+        isModern: false,
+        standbyModel,
+        stages,
+        scale: 0.05, // vanilla pull predicate: 0..1 over a ~20-tick draw
+        origin: path,
+      });
       consumedKeys.add(baseItem);
     }
   }
 
-  return { groups, consumedKeys };
+  // --- Modern item definitions (custom-model bows, incl. Oraxen/Nexo). ---
+  for (const ns of pack.namespaces()) {
+    const prefix = `assets/${ns}/items/`;
+    for (const path of pack.list({ prefix, suffix: ".json" })) {
+      const asset = pack.readJson<ItemsAsset>(path);
+      const root = asset?.model;
+      if (root === undefined) continue;
+      if ((root.type ?? "").replace(/^minecraft:/, "") !== "condition") continue;
+      if ((root.property ?? "").replace(/^minecraft:/, "") !== "using_item") continue;
+
+      const standbyModel = standbyModelOf(root.on_false);
+      const onTrue = root.on_true;
+      if (standbyModel === undefined || onTrue === undefined) continue;
+      if ((onTrue.type ?? "").replace(/^minecraft:/, "") !== "range_dispatch") continue;
+      // Bows use `use_duration`; crossbows use `crossbow/pull` and put a
+      // charge-state select in on_false (handled above → skipped here).
+      if ((onTrue.property ?? "").replace(/^minecraft:/, "") !== "use_duration") continue;
+
+      const stages = pullStagesOf(onTrue);
+      if (stages === undefined) continue;
+
+      const name = path.slice(prefix.length, -".json".length);
+      const itemModelId = `${ns}:${name}`;
+      const scale = typeof onTrue["scale"] === "number" ? (onTrue["scale"] as number) : 1;
+      groups.push({
+        itemModelId,
+        modelKey: itemModelId,
+        isModern: true,
+        standbyModel,
+        stages,
+        scale,
+        origin: path,
+      });
+      consumedModernKeys.add(itemModelId);
+    }
+  }
+
+  return { groups, consumedKeys, consumedModernKeys };
 }
 
 /** Convenience: read + lenient-parse a JSON file that may not exist. */

@@ -38,11 +38,12 @@ function prettyName(id: string): string {
 export const itemsStage: PipelineStage = {
   name: "items",
   async run(ctx: ConversionContext): Promise<void> {
-    // Detect bow-pull groups first so their overrides are skipped in legacy extraction.
-    const { groups: bowPullGroups, consumedKeys } = extractBowPullGroups(ctx.java);
+    // Detect bow-pull groups first so their models are skipped in the normal
+    // legacy + modern variant extraction (they get charge-progress controllers).
+    const { groups: bowPullGroups, consumedKeys, consumedModernKeys } = extractBowPullGroups(ctx.java);
     ctx.bowPullGroups = bowPullGroups;
     const legacy = extractLegacyVariants(ctx.java, consumedKeys);
-    const modern = extractModernVariants(ctx.java);
+    const modern = extractModernVariants(ctx.java, consumedModernKeys);
     for (const u of [...legacy.unsupported, ...modern.unsupported]) {
       ctx.report.skipped("items", u.origin, u.reason);
     }
