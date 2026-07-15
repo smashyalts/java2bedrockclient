@@ -73,6 +73,59 @@ export function App() {
       {phase.kind === "idle" && (
         <>
           <DropZone onFile={handleFile} />
+
+          {/* Compression controls — surfaced (not buried under Advanced) since size is what most people tune. */}
+          <div
+            style={{
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              padding: 16,
+              marginTop: 16,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={optimizePack}
+                onChange={(e) => setOptimizePack(e.target.checked)}
+              />
+              Lossless pack optimization — minify JSON, merge duplicate + drop unused textures (never
+              changes what players see)
+            </label>
+            {optimizePack && (
+              <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={maxCompression}
+                  onChange={(e) => setMaxCompression(e.target.checked)}
+                />
+                Maximum compression — losslessly recompress large textures (oxipng) for ~12% more off
+                them. Runs across your CPU cores; adds a minute or two on big packs.
+              </label>
+            )}
+            {optimizePack && maxCompression && (
+              <label style={{ ...labelStyle, paddingLeft: 24 }}>
+                Compression effort — level {oxipngLevel}{" "}
+                {oxipngLevel === 4 ? "(fastest)" : oxipngLevel === 6 ? "(smallest, slowest)" : "(balanced)"}
+                <input
+                  type="range"
+                  min={4}
+                  max={6}
+                  step={1}
+                  value={oxipngLevel}
+                  onChange={(e) => setOxipngLevel(Number(e.target.value))}
+                  style={{ width: "100%", maxWidth: 280 }}
+                />
+                <span style={{ fontSize: 12 }}>
+                  Higher levels trade minutes for a few % more; the gain past 4 is usually small.
+                </span>
+              </label>
+            )}
+          </div>
+
           <div style={{ marginTop: 16 }}>
             <button
               onClick={() => setShowOptions((v) => !v)}
@@ -134,44 +187,6 @@ export function App() {
                     <option value={1}>1 frame (no animation, smallest)</option>
                   </select>
                 </label>
-                <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={optimizePack}
-                    onChange={(e) => setOptimizePack(e.target.checked)}
-                  />
-                  Lossless pack optimization — minify JSON + merge duplicate textures (never changes
-                  what players see)
-                </label>
-                {optimizePack && (
-                  <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={maxCompression}
-                      onChange={(e) => setMaxCompression(e.target.checked)}
-                    />
-                    Maximum compression — losslessly recompress large textures (oxipng) for ~12%
-                    more off them. Runs across your CPU cores; adds a minute or two on big packs.
-                  </label>
-                )}
-                {optimizePack && maxCompression && (
-                  <label style={labelStyle}>
-                    Compression effort — level {oxipngLevel}{" "}
-                    {oxipngLevel === 4 ? "(fastest)" : oxipngLevel === 6 ? "(smallest, slowest)" : "(balanced)"}
-                    <input
-                      type="range"
-                      min={4}
-                      max={6}
-                      step={1}
-                      value={oxipngLevel}
-                      onChange={(e) => setOxipngLevel(Number(e.target.value))}
-                      style={{ width: "100%" }}
-                    />
-                    <span style={{ fontSize: 12 }}>
-                      Higher levels trade minutes for a few % more; the gain past 4 is usually small.
-                    </span>
-                  </label>
-                )}
                 <label style={labelStyle}>
                   Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items
                   and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
