@@ -380,13 +380,7 @@ function convertModel(
   // centre at the entity origin. The extension's default -0.5 = -(8/16) centres
   // a standard 1-block item; deriving from real Y-bounds keeps tall furniture
   // (e.g. chairs spanning y 0..23) from floating.
-  const isFurniture = isFurnitureGroup(ctx, group);
   const furnitureYOffset = elements.length > 0 ? furnitureOffsetFromElements(elements) : undefined;
-
-  // Furniture (chairs, sofas) is concave — the default one-sided material culls
-  // back faces so seats/panels vanish from some angles. Render it double-sided.
-  const attachMaterial = isFurniture ? DOUBLE_SIDED_MATERIAL : ctx.options.attachableMaterial;
-  if (isFurniture) writeDoubleSidedMaterial(ctx);
 
   const attachableIds = new Set<string>();
   for (const { variant } of group) {
@@ -399,7 +393,7 @@ function convertModel(
       `attachables/geyser_custom/${safeName(identifier.split(":")[1] ?? identifier)}.json`,
       buildItemAttachable({
         identifier,
-        material: attachMaterial,
+        material: ctx.options.attachableMaterial,
         texture: atlasPath,
         geometry: geometryId,
         animations: anims.refs,
@@ -429,49 +423,6 @@ function convertModel(
   } else {
     ctx.report.converted("items-3d", modelId, outputs);
   }
-}
-
-/**
- * Bedrock material for double-sided (no back-face culling) rendering: a custom
- * material inheriting the vanilla alpha-test cutout shader with culling
- * disabled. Concave furniture (chairs/sofas) needs this or seats/panels vanish.
- */
-const DOUBLE_SIDED_MATERIAL = "geyser_custom_double";
-const DOUBLE_SIDED_MATERIAL_PATH = "materials/geyser_custom.material";
-
-/** Write the custom double-sided material file (idempotent). */
-function writeDoubleSidedMaterial(ctx: ConversionContext): void {
-  if (ctx.bedrock.read(DOUBLE_SIDED_MATERIAL_PATH) !== undefined) return;
-  ctx.bedrock.writeJson(DOUBLE_SIDED_MATERIAL_PATH, {
-    materials: {
-      version: "1.0.0",
-      // Inherit the vanilla alpha-test cutout material; disable back-face
-      // culling so both sides of every face render.
-      [`${DOUBLE_SIDED_MATERIAL}:entity_alphatest`]: {
-        states: ["Disable_culling"],
-      },
-    },
-  });
-}
-
-/** Whether a geometry group is world-placed furniture (needs double-sided rendering). */
-function isFurnitureGroup(ctx: ConversionContext, group: PendingGeometry[]): boolean {
-  if (ctx.options.furnitureItems.length === 0) return false;
-  const base = groupBaseItem(ctx, group);
-  for (const { variant } of group) {
-    const keys: string[] = [];
-    if (variant.source.kind === "modern") {
-      keys.push(parseResourceLocation(variant.source.itemModelId).path.toLowerCase());
-    }
-    keys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
-    const cmd = cmdOf(variant);
-    if (base !== undefined && cmd !== undefined) {
-      const configKey = ctx.options.cmdItemKeys[`${base}|${cmd}`];
-      if (configKey !== undefined) keys.push(configKey);
-    }
-    if (keys.some((k) => ctx.options.furnitureItems.includes(k))) return true;
-  }
-  return false;
 }
 
 /**

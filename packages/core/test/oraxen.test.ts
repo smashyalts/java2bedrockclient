@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { zipSync } from "fflate";
-import { convertPack, parseOraxenConfigZip, readZip } from "../src/index.js";
+import { convertPack, parseOraxenConfigZip } from "../src/index.js";
 import { encode } from "fast-png";
 
 function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
@@ -198,14 +198,6 @@ items:
     expect(cfg).toContain("hide-custom-types: []");
     // hide-types stays intact so vanilla item-displays are still hidden.
     expect(cfg).toContain('- "minecraft:leather_horse_armor"');
-    // Concave furniture renders double-sided: custom material emitted + used.
-    const out = readZip(result.mcpack);
-    const material = out.readText("materials/geyser_custom.material")!;
-    expect(material).toContain("geyser_custom_double:entity_alphatest");
-    expect(material).toContain("Disable_culling");
-    const attachable = JSON.parse(out.readText("attachables/geyser_custom/tall_chair.json")!);
-    const mats = attachable["minecraft:attachable"].description.materials;
-    expect(mats.default).toBe("geyser_custom_double");
   });
 
   it("omits the furniture config.yml when no furniture uses a hidden base item", async () => {
