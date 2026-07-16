@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
-const VALID_EXTENSIONS = [".zip", ".mcpack"];
+// Includes double extensions (.tar.gz), so match by suffix, not the last dot.
+const VALID_EXTENSIONS = [".zip", ".mcpack", ".tar.gz", ".tgz"];
 const MAX_FILE_SIZE = 512 * 1024 * 1024;
 
 export function DropZone({ onFile }: { onFile: (file: File) => void }) {
@@ -11,9 +12,9 @@ export function DropZone({ onFile }: { onFile: (file: File) => void }) {
 
   const validateAndSubmit = useCallback(
     (file: File) => {
-      const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
-      if (!VALID_EXTENSIONS.includes(ext)) {
-        setError(`"${file.name}" is not a .zip or .mcpack file`);
+      const lower = file.name.toLowerCase();
+      if (!VALID_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
+        setError(`"${file.name}" is not a .zip, .mcpack, or .tar.gz file`);
         return;
       }
       if (file.size > MAX_FILE_SIZE) {
@@ -64,16 +65,18 @@ export function DropZone({ onFile }: { onFile: (file: File) => void }) {
     >
       <div style={{ fontSize: 40, marginBottom: 12 }}>📦</div>
       <div style={{ fontSize: 18, fontWeight: 600 }}>
-        Drop your Java resource pack .zip here
+        Drop your Java resource pack here
       </div>
-      <div style={{ color: "var(--muted)", marginTop: 6 }}>or click to choose a file</div>
+      <div style={{ color: "var(--muted)", marginTop: 6 }}>
+        .zip, .mcpack, or .tar.gz — or click to choose a file
+      </div>
       {error && (
         <div style={{ color: "var(--err)", marginTop: 12, fontSize: 13 }}>{error}</div>
       )}
       <input
         ref={inputRef}
         type="file"
-        accept=".zip,.mcpack"
+        accept=".zip,.mcpack,.tar.gz,.tgz,application/gzip"
         style={{ display: "none" }}
         onChange={(e) => {
           const file = e.target.files?.[0];

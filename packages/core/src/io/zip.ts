@@ -1,6 +1,7 @@
 import { zipSync, type Zippable } from "fflate";
 import { VirtualFs } from "./vfs.js";
 import { readZipResilient } from "./zipReader.js";
+import { isGzip, readTarGzDetailed } from "./tar.js";
 
 export interface ReadZipResult {
   vfs: VirtualFs;
@@ -9,10 +10,13 @@ export interface ReadZipResult {
 }
 
 /**
- * Read a zip archive into a VirtualFs, tolerating deliberately corrupted
- * archives ("pack protection"). Unreadable entries are reported, not fatal.
+ * Read a resource-pack archive into a VirtualFs. Accepts zip/.mcpack and
+ * gzipped tar (.tar.gz / .tgz — e.g. a `git archive` of a pack). Zip reading
+ * tolerates deliberately corrupted archives ("pack protection"); unreadable
+ * entries are reported, not fatal.
  */
 export function readZipDetailed(bytes: Uint8Array): ReadZipResult {
+  if (isGzip(bytes)) return readTarGzDetailed(bytes);
   const result = readZipResilient(bytes);
   const vfs = new VirtualFs();
   for (const entry of result.entries) {

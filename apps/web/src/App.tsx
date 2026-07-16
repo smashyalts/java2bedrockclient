@@ -36,7 +36,7 @@ export function App() {
 
   const handleFile = useCallback(
     async (file: File) => {
-      const packName = file.name.replace(/\.(zip|mcpack)$/i, "");
+      const packName = file.name.replace(/\.(zip|mcpack|tgz|tar\.gz)$/i, "");
       setPhase({ kind: "converting", stage: "reading file", done: 0, total: 1, fileName: file.name });
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
