@@ -174,7 +174,19 @@ export interface ConversionContext {
    * config key, host java item, bedrock identifier name (no namespace), and
    * the legacy cmd value when the pack dispatches on custom_model_data.
    */
-  displayEntityMappings: { key: string; type: string; identifier: string; modelData?: number }[];
+  displayEntityMappings: {
+    key: string;
+    type: string;
+    identifier: string;
+    modelData?: number;
+    /**
+     * Per-item vertical offset for the GeyserDisplayEntity stand-in, derived
+     * from the furniture model's vertical centre (Java units → blocks). The
+     * extension's default -0.5 assumes a standard 1-block item (centre at y=8);
+     * this generalises it so tall furniture doesn't float.
+     */
+    yOffset?: number;
+  }[];
 }
 
 export interface PendingGeometry {

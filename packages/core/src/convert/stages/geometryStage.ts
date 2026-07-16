@@ -370,9 +370,15 @@ function convertModel(
   // 8. Register a mapping entry per variant, and an attachable per unique
   // bedrock identifier (definitions may get item-model based identifiers, so
   // one shared model can back several bedrock items).
+  // Furniture (GeyserDisplayEntity) stand-in offset: place the model's vertical
+  // centre at the entity origin. The extension's default -0.5 = -(8/16) centres
+  // a standard 1-block item; deriving from real Y-bounds keeps tall furniture
+  // (e.g. chairs spanning y 0..23) from floating.
+  const furnitureYOffset = elements.length > 0 ? furnitureOffsetFromElements(elements) : undefined;
+
   const attachableIds = new Set<string>();
   for (const { variant } of group) {
-    const definition = buildDefinition(ctx, variant, { icon: iconKey, displayHandheld: false });
+    const definition = buildDefinition(ctx, variant, { icon: iconKey, displayHandheld: false, furnitureYOffset });
     ctx.definitionTextures.set(definition, [...textureIds]);
     const identifier = definition.bedrock_identifier!;
     if (attachableIds.has(identifier)) continue;
@@ -424,6 +430,24 @@ function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
 
 function resolveFaceTexture(textures: Record<string, string>, ref: string): string | undefined {
   return resolveTextureRef(textures, ref);
+}
+
+/**
+ * GeyserDisplayEntity y-offset for a furniture model: negate the model's
+ * vertical centre in blocks. Java model units are 1/16 block; the extension's
+ * default -0.5 corresponds to a model centred at y=8, so this generalises it to
+ * any height (rotations ignored — the axis-aligned span is a good approximation
+ * for the near-upright furniture models this targets).
+ */
+function furnitureOffsetFromElements(elements: JavaElement[]): number {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const el of elements) {
+    minY = Math.min(minY, el.from[1], el.to[1]);
+    maxY = Math.max(maxY, el.from[1], el.to[1]);
+  }
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return -0.5;
+  return -((minY + maxY) / 2 / 16);
 }
 
 function pickIcon(

@@ -165,6 +165,34 @@ items:
     expect(result.displayEntityMappings).toContain('item-identifier: "plushie_bear"');
   });
 
+  it("derives a per-item y-offset from a 3D furniture model's height", async () => {
+    // A tall furniture model (e.g. a chair) spanning y 0..24 → vertical centre
+    // 12 → y-offset -0.75, not the flat -0.5 that leaves tall pieces floating.
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/tall_chair.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/tall_chair" },
+      }),
+      "assets/nexo/models/item/tall_chair.json": JSON.stringify({
+        textures: { "1": "nexo:item/tall_chair" },
+        elements: [
+          { from: [4, 0, 4], to: [12, 24, 12], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
+        ],
+        display: { fixed: { scale: [2, 2, 2] } },
+      }),
+      "assets/nexo/textures/item/tall_chair.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Chair",
+      baseItemHints: { tall_chair: "minecraft:leather_horse_armor" },
+      furnitureItems: ["tall_chair"],
+    });
+    const yml = result.displayEntityMappings!;
+    expect(yml).toContain("y-offset: -0.750");
+    // Not the flat default that leaves tall furniture floating.
+    expect(yml).not.toContain("y-offset: -0.500");
+  });
+
   it("maps modern item definitions under hinted base items", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
