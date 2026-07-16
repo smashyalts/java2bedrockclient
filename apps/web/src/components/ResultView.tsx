@@ -82,6 +82,14 @@ export function ResultView({
               ⬇ furniture mappings.yml
             </button>
           )}
+          {result.displayEntityConfig !== undefined && (
+            <button
+              style={{ ...buttonStyle, background: "var(--panel)", color: "var(--warn)", border: "1px solid var(--warn)" }}
+              onClick={() => download("geyserdisplayentity_config.yml", result.displayEntityConfig!, "text/yaml")}
+            >
+              ⬇ furniture config.yml (fixes disappearing)
+            </button>
+          )}
           <button
             style={{ ...buttonStyle, background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)" }}
             onClick={() =>
@@ -119,6 +127,13 @@ export function ResultView({
               </a>{" "}
               extension: drop its jar in Geyser's <code>extensions/</code> folder and put the
               furniture mappings yml in <code>extensions/geyserdisplayentity/Mappings/</code>.
+              {result.displayEntityConfig !== undefined && (
+                <>
+                  {" "}Also drop the furniture <code>config.yml</code> in{" "}
+                  <code>extensions/geyserdisplayentity/</code> — without it, furniture on
+                  leather_horse_armor flashes then disappears.
+                </>
+              )}
             </>
           )}
         </p>

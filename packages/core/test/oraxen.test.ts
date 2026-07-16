@@ -191,6 +191,35 @@ items:
     expect(yml).toContain("y-offset: -0.750");
     // Not the flat default that leaves tall furniture floating.
     expect(yml).not.toContain("y-offset: -0.500");
+    // Furniture on leather_horse_armor is hidden by the extension default →
+    // a corrected config.yml is emitted with it removed from hide-custom-types.
+    const cfg = result.displayEntityConfig!;
+    expect(cfg).toBeDefined();
+    expect(cfg).toContain("hide-custom-types: []");
+    // hide-types stays intact so vanilla item-displays are still hidden.
+    expect(cfg).toContain('- "minecraft:leather_horse_armor"');
+  });
+
+  it("omits the furniture config.yml when no furniture uses a hidden base item", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/paper_lamp.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/paper_lamp" },
+      }),
+      "assets/nexo/models/item/paper_lamp.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "nexo:item/paper_lamp" },
+      }),
+      "assets/nexo/textures/item/paper_lamp.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Paper",
+      baseItemHints: { paper_lamp: "minecraft:paper" },
+      furnitureItems: ["paper_lamp"],
+    });
+    expect(result.displayEntityMappings).toBeDefined();
+    // paper isn't hidden by default → no config.yml needed.
+    expect(result.displayEntityConfig).toBeUndefined();
   });
 
   it("maps modern item definitions under hinted base items", async () => {

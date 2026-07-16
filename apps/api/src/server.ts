@@ -100,6 +100,7 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
   if (result.geyserMappings) bundle["geyser_mappings.json"] = new TextEncoder().encode(result.geyserMappings);
   if (result.geyserBlockMappings) bundle["geyser_blocks.json"] = new TextEncoder().encode(result.geyserBlockMappings);
   if (result.displayEntityMappings) bundle["geyser_displayentity_mappings.yml"] = new TextEncoder().encode(result.displayEntityMappings);
+  if (result.displayEntityConfig) bundle["geyserdisplayentity_config.yml"] = new TextEncoder().encode(result.displayEntityConfig);
 
   const out = zipSync(bundle, { level: 6 });
   res.writeHead(200, {
