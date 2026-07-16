@@ -80,6 +80,12 @@ export interface ConvertOptions {
 export interface PngEncoder {
   /** Encode each image with the core encoder (indexed/grayscale/RGBA, smallest wins). */
   encode(images: RawImage[]): Promise<Uint8Array[]>;
+  /**
+   * Encode a single image and return the PNG — allows overlapping prep work
+   * with encoding (post jobs as they're produced instead of batching at the end).
+   * Falls back to encode() for batch callers.
+   */
+  post?(image: RawImage): Promise<Uint8Array>;
 }
 
 /** Plain RGBA image payload (structured-clone friendly, no methods). */
@@ -153,6 +159,12 @@ export interface ConversionContext {
    * the same PNG across the items, blocks, geometry, and optimize stages.
    */
   textureCache: Map<string, RgbaImage | undefined>;
+  /**
+   * Java texture paths loaded by the geometry stage — used by the flipbook
+   * stage to suppress false "skipped" reports for animations that are already
+   * handled by the geometry stage's render controller.
+   */
+  geometryHandledTextures: Set<string>;
   /**
    * Bow-pull groups detected from legacy overrides — consumed by the
    * bowPullStage to emit charge-progress render controllers.

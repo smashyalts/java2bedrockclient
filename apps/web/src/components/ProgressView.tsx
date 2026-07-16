@@ -3,11 +3,13 @@ export function ProgressView({
   done,
   total,
   fileName,
+  onCancel,
 }: {
   stage: string;
   done: number;
   total: number;
   fileName: string;
+  onCancel?: () => void;
 }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
@@ -33,6 +35,23 @@ export function ProgressView({
           }}
         />
       </div>
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          style={{
+            marginTop: 16,
+            background: "transparent",
+            color: "var(--muted)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "8px 16px",
+            fontSize: 13,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+      )}
     </div>
   );
 }

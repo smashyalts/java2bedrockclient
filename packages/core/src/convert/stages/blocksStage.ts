@@ -236,7 +236,6 @@ function buildBlockDefinition(
   };
 }
 
-// resolveTextureRef from modelResolver replaces the former local resolveRef.
 
 /** Copy a java texture into the pack and register it in terrain_texture.json. */
 function registerTerrainTexture(ctx: ConversionContext, textureId: string): string | undefined {

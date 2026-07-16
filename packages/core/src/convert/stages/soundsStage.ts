@@ -1,4 +1,5 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
+import { parseResourceLocation } from "../../java/javaPack.js";
 
 interface JavaSoundEvent {
   category?: string;
@@ -37,9 +38,7 @@ export const soundsStage: PipelineStage = {
         const eventId = ns === "minecraft" ? event : `${ns}:${event}`;
         const sounds = (def.sounds ?? []).map((s) => {
           const entry = typeof s === "string" ? { name: s } : s;
-          const loc = entry.name.includes(":")
-            ? { namespace: entry.name.split(":")[0]!, path: entry.name.split(":")[1]! }
-            : { namespace: ns, path: entry.name };
+          const loc = parseResourceLocation(entry.name, ns);
           if (!ctx.java.has(`assets/${loc.namespace}/sounds/${loc.path}.ogg`)) {
             ctx.report.approximated(
               "sounds",

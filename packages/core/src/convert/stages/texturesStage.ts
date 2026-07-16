@@ -16,9 +16,11 @@ const HANDLED_BY_STAGE = new Set(["painting", "font"]);
 
 /**
  * Copies vanilla-namespace textures into their Bedrock locations using the
- * remap table. Non-minecraft namespaces are handled by the custom item stages
- * (their textures only matter where models reference them), but we still copy
- * them under a namespaced folder so nothing is lost.
+ * remap table. Custom-namespace textures are NOT copied here — the item,
+ * geometry, armor, blocks, and font stages re-encode whatever they reference
+ * into textures/geyser_custom/. The only exception is animated custom block
+ * textures, which the flipbooks stage copies on demand for its flipbook entry.
+ * This avoids copying ~1000+ textures that the optimizer would later sweep.
  */
 export const texturesStage: PipelineStage = {
   name: "textures",
@@ -35,14 +37,8 @@ export const texturesStage: PipelineStage = {
           const category = path.slice("assets/minecraft/textures/".length).split("/")[0] ?? "";
           if (!VANILLA_TEXTURE_CATEGORIES.has(category)) {
             // Custom content dumped under the minecraft namespace (armour sets,
-            // glyph sheets). The item/armour/font stages re-encode whatever they
-            // reference; copy the source so any path reference survives, and let
-            // the optimizer's dead-file sweep drop the rest. No report noise —
-            // the owning stage reports the real conversion.
-            const data = ctx.java.read(path);
-            if (data !== undefined) {
-              ctx.bedrock.write(`textures/${path.slice("assets/minecraft/textures/".length)}`, data);
-            }
+            // glyph sheets). The owning stage re-encodes what it references;
+            // skip copying — the optimizer sweep would delete it anyway.
             continue;
           }
           // A real vanilla category we don't remap here: painting/font are
@@ -71,17 +67,11 @@ export const texturesStage: PipelineStage = {
         continue;
       }
 
-      // Custom-namespace texture: keep it addressable for models/attachables.
-      const match = path.match(/^assets\/([^/]+)\/textures\/(.+)$/);
-      if (match) {
-        const [, ns, rest] = match;
-        const out = `textures/${ns}/${rest}`;
-        const data = ctx.java.read(path);
-        if (data !== undefined) {
-          ctx.bedrock.write(out, data);
-          ctx.report.converted("textures", path, [out]);
-        }
-      }
+      // Custom-namespace textures: NOT copied here. The consuming stages
+      // (items, geometry, armor, blocks, fonts) decode from ctx.java and
+      // re-encode into textures/geyser_custom/. The flipbooks stage copies
+      // animated custom block textures on demand. This saves ~1200 dead
+      // VFS writes + the same memory + the optimizer sweep.
     }
     ctx.progress("textures", paths.length, paths.length);
   },

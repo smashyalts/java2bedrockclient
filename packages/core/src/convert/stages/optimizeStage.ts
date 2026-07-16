@@ -51,6 +51,14 @@ export const optimizeStage: PipelineStage = {
       ctx.bedrock.delete(path);
       swept++;
     }
+    // Also sweep unreferenced .ogg files — soundsStage copies every .ogg from
+    // the pack, but only those referenced by sounds.json are actually used.
+    const referencedSounds = collectReferencedSounds(ctx);
+    for (const path of ctx.bedrock.list({ prefix: "sounds/", suffix: ".ogg" })) {
+      if (referencedSounds.has(path)) continue;
+      ctx.bedrock.delete(path);
+      swept++;
+    }
 
     // --- 1. Merge duplicate textures (all paths, not just geyser_custom). ---
     // References use the path without extension (attachables, item_texture,
@@ -110,23 +118,18 @@ export const optimizeStage: PipelineStage = {
       });
     }
 
-    // --- 3. Rewrite references (only when textures were merged). ---
-    // JSON minification is already handled by the packaging stage when
-    // optimizePack is on — no need to re-parse/re-stringify here unless
-    // we have texture path rewrites to apply.
-    if (rewrites.size > 0) {
-      for (const path of ctx.bedrock.list({ suffix: ".json" })) {
-        const text = ctx.bedrock.readText(path);
-        if (text === undefined) continue;
-        let value: unknown;
-        try {
-          value = parseLenientJson(text);
-        } catch {
-          continue; // never corrupt a file we can't parse
-        }
-        value = rewriteStrings(value, rewrites);
-        ctx.bedrock.writeText(path, JSON.stringify(value));
-      }
+    // --- 3. Rewrite references + minify all JSON. ---
+    // The packaging stage minifies 3 registry files, but every other JSON
+    // (attachables, animations, render_controllers, geometry, sounds, etc.)
+    // is written pretty. Re-stringify all JSON without indentation.
+    // When texture path rewrites are needed, apply them in the same pass.
+    for (const path of ctx.bedrock.list({ suffix: ".json" })) {
+      const text = ctx.bedrock.readText(path);
+      if (text === undefined) continue;
+      const value = parseLenientJson(text);
+      if (value === undefined) continue; // never corrupt a file we can't parse
+      const rewritten = rewrites.size > 0 ? rewriteStrings(value, rewrites) : value;
+      ctx.bedrock.writeText(path, JSON.stringify(rewritten));
     }
 
     // --- 4. Opt-in zopfli recompression of larger PNGs (maxCompression). ---
@@ -230,6 +233,21 @@ function collectReferencedTextures(ctx: ConversionContext): Set<string> {
     const text = ctx.bedrock.readText(path);
     if (text === undefined) continue;
     for (const match of text.matchAll(re)) referenced.add(stripExt(match[0]));
+  }
+  return referenced;
+}
+
+/** Every .ogg path referenced by sound_definitions.json (with extension). */
+function collectReferencedSounds(ctx: ConversionContext): Set<string> {
+  const referenced = new Set<string>();
+  for (const path of ctx.bedrock.list({ suffix: ".json" })) {
+    if (!path.includes("sound")) continue;
+    const text = ctx.bedrock.readText(path);
+    if (text === undefined) continue;
+    // sound_definitions.json stores paths as "sounds/ns/path" (no .ogg extension).
+    for (const match of text.matchAll(/sounds\/[A-Za-z0-9_\-./]+/g)) {
+      referenced.add(match[0] + ".ogg");
+    }
   }
   return referenced;
 }

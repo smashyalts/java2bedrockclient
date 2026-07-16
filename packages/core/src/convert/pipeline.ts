@@ -113,6 +113,7 @@ export async function convertPack(
     definitionTextures: new Map(),
     usedBedrockIdentifiers: new Set(),
     textureCache: new Map(),
+    geometryHandledTextures: new Set(),
     displayEntityMappings: [],
   };
   ctx.configZipProvided = opts.configZipProvided === true;
@@ -140,12 +141,14 @@ export async function convertPack(
     finishTimings();
   }
 
-  // Anything still pending after all stages ran was not consumed by a converter.
+  // Anything still pending after all stages ran was not consumed by the
+  // geometry stage — this should never happen (the stage drains the queue),
+  // so flag it as an internal error rather than a missing feature.
   for (const pending of ctx.pendingGeometry) {
     ctx.report.skipped(
       "items-3d",
       `${pending.variant.origin} → ${pending.variant.model}`,
-      "3D geometry conversion not yet implemented",
+      "internal error: 3D variant not consumed by the geometry stage",
     );
   }
 

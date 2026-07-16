@@ -35,7 +35,7 @@ export function writeZip(vfs: VirtualFs): Uint8Array {
   const tree: Zippable = {};
   for (const [path, data] of vfs.entries()) {
     const alreadyCompressed = /\.(png|ogg|jpg|jpeg|zip|mcpack)$/i.test(path);
-    tree[path] = alreadyCompressed ? [data, { level: 0 }] : [data, { level: 9 }];
+    tree[path] = alreadyCompressed ? [data, { level: 0 }] : [data, { level: 6 }];
   }
   return zipSync(tree);
 }

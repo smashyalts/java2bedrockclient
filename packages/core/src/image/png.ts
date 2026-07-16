@@ -98,13 +98,13 @@ export function encodePng(image: RgbaImage): Uint8Array {
   // colour-type-0: no PLTE/tRNS palette overhead at all. The check early-outs
   // on the first coloured or translucent pixel, so coloured art pays ~nothing.
   const gray = timeOp("png.encode.gray", () => encodeGrayscalePng(image));
+  if (gray !== undefined) return gray;
   // Pixel art almost always fits a ≤256-colour palette, where an indexed PNG
   // is both smaller and far cheaper than UPNG's filter search. Ship the smaller
   // of the two palette-free/indexed encodings when either fits — skipping the
   // expensive RGBA encode entirely. Only images with >256 colours (photographic
   // textures) fall back to UPNG.
   const indexed = timeOp("png.encode.indexed", () => encodeIndexedPng(image));
-  if (gray !== undefined && (indexed === undefined || gray.length < indexed.length)) return gray;
   if (indexed !== undefined) return indexed;
   return timeOp("png.encode.rgba", () => {
     const buf = image.data.buffer.slice(

@@ -112,5 +112,10 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
         for (const w of pool) pump(w);
       });
     },
+
+    post(image: RawImage): Promise<Uint8Array> {
+      // Encode a single image via the pool — workers are shared with encode().
+      return this.encode([image]).then((r) => r[0]!);
+    },
   };
 }

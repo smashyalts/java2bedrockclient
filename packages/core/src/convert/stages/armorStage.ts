@@ -2,6 +2,7 @@ import type { ConversionContext, GeyserItemDefinition, PipelineStage } from "../
 import { ARMOR_SLOTS, buildArmorAttachable, buildElytraAttachable, type ArmorPiece } from "../../bedrock/armor.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { safeName } from "./itemsStage.js";
+import { alphaBleed, decodeCached, encodePng, firstFrame } from "../../image/png.js";
 
 interface EquipmentAsset {
   layers?: {
@@ -103,13 +104,21 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
   for (const key of ["layer1", "layer2", "wings"] as const) {
     const src = set[key];
     if (src === undefined) continue;
-    const bytes = ctx.java.read(src);
-    if (bytes === undefined) {
+    const image = decodeCached(ctx.java.read.bind(ctx.java), src, ctx.textureCache);
+    if (image === undefined) {
       ctx.report.approximated("armor", set.origin, `${key} texture ${src} missing from pack`);
       continue;
     }
+    let img = image;
+    if (img.height > img.width && ctx.java.has(src + ".mcmeta")) {
+      img = firstFrame(img);
+    } else {
+      // Copy — alphaBleed mutates in place, and the cached image is shared.
+      img = { width: img.width, height: img.height, data: img.data.slice() };
+    }
+    alphaBleed(img);
     const out = `textures/geyser_custom/armor/${set.name}_${key}`;
-    ctx.bedrock.write(out + ".png", bytes);
+    ctx.bedrock.write(out + ".png", encodePng(img));
     texturePaths[key] = out;
     outputs.push(out + ".png");
   }

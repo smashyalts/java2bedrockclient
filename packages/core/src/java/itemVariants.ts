@@ -498,8 +498,3 @@ export function extractBowPullGroups(pack: JavaPack): {
 
   return { groups, consumedKeys, consumedModernKeys };
 }
-
-/** Convenience: read + lenient-parse a JSON file that may not exist. */
-export function tryParse<T>(text: string | undefined): T | undefined {
-  return text === undefined ? undefined : parseLenientJson<T>(text);
-}

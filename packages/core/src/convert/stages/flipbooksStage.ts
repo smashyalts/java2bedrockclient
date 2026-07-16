@@ -31,6 +31,12 @@ export const flipbooksStage: PipelineStage = {
         if (customBlockMatch) {
           const flipbookTexture = `textures/${customBlockMatch[1]}/block/${customBlockMatch[2]!.slice(0, -".png".length)}`;
           const atlasTile = customBlockMatch[2]!.slice(0, -".png".length).replace(/\//g, ".");
+          // Copy the texture into the Bedrock pack — texturesStage skips custom
+          // namespaces, so we do it here only for animated block textures.
+          const texData = ctx.java.read(texturePath);
+          if (texData !== undefined) {
+            ctx.bedrock.write(flipbookTexture + ".png", texData);
+          }
           const anim = meta.animation;
           const entry: Record<string, unknown> = {
             flipbook_texture: flipbookTexture,
@@ -44,11 +50,15 @@ export const flipbooksStage: PipelineStage = {
           flipbooks.push(entry);
           ctx.report.converted("flipbooks", path, ["textures/flipbook_textures.json"]);
         } else if (!texturePath.includes("/textures/item/")) {
-          ctx.report.skipped(
-            "flipbooks",
-            path,
-            "animation on a non-block texture — Bedrock only animates atlas textures via flipbook_textures.json",
-          );
+          // Suppress the skip report if the geometry stage already handles this
+          // texture via its render controller (3D item animations).
+          if (!ctx.geometryHandledTextures.has(texturePath)) {
+            ctx.report.skipped(
+              "flipbooks",
+              path,
+              "animation on a non-block texture — Bedrock only animates atlas textures via flipbook_textures.json",
+            );
+          }
         }
         continue;
       }

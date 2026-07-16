@@ -44,8 +44,20 @@ export const itemsStage: PipelineStage = {
     ctx.bowPullGroups = bowPullGroups;
     const legacy = extractLegacyVariants(ctx.java, consumedKeys);
     const modern = extractModernVariants(ctx.java, consumedModernKeys);
+    // Consolidate unsupported entries by reason — 76 identical "using_item"
+    // condition skips become one report line instead of 76.
+    const byReason = new Map<string, string[]>();
     for (const u of [...legacy.unsupported, ...modern.unsupported]) {
-      ctx.report.skipped("items", u.origin, u.reason);
+      const arr = byReason.get(u.reason) ?? [];
+      arr.push(u.origin);
+      byReason.set(u.reason, arr);
+    }
+    for (const [reason, origins] of byReason) {
+      if (origins.length === 1) {
+        ctx.report.skipped("items", origins[0]!, reason);
+      } else {
+        ctx.report.skipped("items", `${origins.length} assets`, `${reason} (×${origins.length})`);
+      }
     }
 
     const variants = [...legacy.variants, ...modern.variants];

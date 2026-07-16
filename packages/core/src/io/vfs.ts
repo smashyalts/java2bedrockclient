@@ -6,6 +6,8 @@
 export class VirtualFs {
   private files = new Map<string, Uint8Array>();
   private sortedPaths: string[] | null = null;
+  private readonly decoder = new TextDecoder("utf-8");
+  private readonly encoder = new TextEncoder();
 
   private invalidate(): void {
     this.sortedPaths = null;
@@ -26,7 +28,7 @@ export class VirtualFs {
   readText(path: string): string | undefined {
     const data = this.read(path);
     if (data === undefined) return undefined;
-    return new TextDecoder("utf-8").decode(data);
+    return this.decoder.decode(data);
   }
 
   write(path: string, data: Uint8Array): void {
@@ -35,7 +37,7 @@ export class VirtualFs {
   }
 
   writeText(path: string, text: string): void {
-    this.write(path, new TextEncoder().encode(text));
+    this.write(path, this.encoder.encode(text));
   }
 
   writeJson(path: string, value: unknown, pretty = true): void {

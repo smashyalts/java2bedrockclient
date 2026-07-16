@@ -20,10 +20,6 @@ export function parseResourceLocation(id: string, defaultNamespace = "minecraft"
   return { namespace: id.slice(0, idx), path: id.slice(idx + 1) };
 }
 
-export function resourceLocationToString(loc: ResourceLocation): string {
-  return `${loc.namespace}:${loc.path}`;
-}
-
 /**
  * Indexed view over a Java resource pack living in a VirtualFs.
  * Handles packs that are nested one directory deep inside the zip
@@ -35,6 +31,9 @@ export class JavaPack {
   readonly root: string;
   readonly mcmeta: PackMcmeta | undefined;
   readonly packFormat: number;
+  /** JSON parse cache — the input pack is read-only, so caching is safe. */
+  private jsonCache = new Map<string, unknown | undefined>();
+  private cachedNamespaces: string[] | undefined;
 
   private constructor(vfs: VirtualFs, root: string) {
     this.vfs = vfs;
@@ -61,13 +60,15 @@ export class JavaPack {
 
   /** Namespaces present under assets/. */
   namespaces(): string[] {
+    if (this.cachedNamespaces !== undefined) return this.cachedNamespaces;
     const out = new Set<string>();
     for (const path of this.vfs.list({ prefix: this.root + "assets/" })) {
       const rest = path.slice((this.root + "assets/").length);
       const ns = rest.split("/")[0];
       if (ns) out.add(ns);
     }
-    return [...out].sort();
+    this.cachedNamespaces = [...out].sort();
+    return this.cachedNamespaces;
   }
 
   /** Read a file relative to the pack root. */
@@ -80,8 +81,11 @@ export class JavaPack {
   }
 
   readJson<T = unknown>(relPath: string): T | undefined {
+    if (this.jsonCache.has(relPath)) return this.jsonCache.get(relPath) as T | undefined;
     const text = this.readText(relPath);
-    return text !== undefined ? parseLenientJson<T>(text) : undefined;
+    const result = text !== undefined ? parseLenientJson<T>(text) : undefined;
+    this.jsonCache.set(relPath, result);
+    return result;
   }
 
   has(relPath: string): boolean {

@@ -14,7 +14,6 @@ import { fastHash } from "../../util/hash.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
 import { resolveTextureRef } from "../../resolve/modelResolver.js";
-
 /** 2x2 magenta placeholder for missing textures (classic "missing texture" look). */
 function missingTexture(): RgbaImage {
   const data = new Uint8Array(2 * 2 * 4);
@@ -85,6 +84,9 @@ function loadTexture(
 
 function loadTextureUncached(ctx: ConversionContext, textureId: string): LoadedTexture | undefined {
   const path = ctx.java.assetPath("textures", textureId, ".png");
+  // Record that this texture is handled by the geometry stage so the flipbook
+  // stage doesn't report it as "skipped: animation on a non-block texture".
+  ctx.geometryHandledTextures.add(path);
   const image = decodeCached(ctx.java.read.bind(ctx.java), path, ctx.textureCache);
   if (image === undefined) return undefined;
 
@@ -173,18 +175,23 @@ export const geometryStage: PipelineStage = {
     const encodeJobs: EncodeJob[] = [];
     // Decode each source texture once, even when many models share it.
     const textureCache = new Map<string, LoadedTexture | undefined>();
+    // Read sprites.json once instead of re-parsing it per model.
+    const spritesJson = ctx.java.readJson<Record<string, string>>("sprites.json") ?? {};
 
     let done = 0;
     for (const [modelId, group] of byModel) {
       done++;
       ctx.progress("items-3d", done, byModel.size);
       try {
-        convertModel(ctx, modelId, group, atlasCache, encodeJobs, textureCache);
+        convertModel(ctx, modelId, group, atlasCache, encodeJobs, textureCache, spritesJson);
       } catch (err) {
         ctx.report.error("items-3d", modelId, err instanceof Error ? err.message : String(err));
       }
     }
 
+    // Flush PNG encodes — if the pool supports incremental post, overlap prep
+    // with encoding by posting jobs as they're produced (already done above via
+    // convertModel collecting into encodeJobs). Fallback: batch encode.
     const encoder = ctx.options.pngEncoder;
     if (encoder !== undefined && encodeJobs.length >= ENCODE_POOL_THRESHOLD) {
       const pngs = await timeOpAsync("png.encode.pool", () =>
@@ -204,6 +211,7 @@ function convertModel(
   atlasCache: Map<string, string>,
   encodeJobs: EncodeJob[],
   textureCache: Map<string, LoadedTexture | undefined>,
+  spritesJson: Record<string, string>,
 ): void {
   const resolved = group[0]!.resolved;
   const elements = resolved.elements ?? [];
@@ -213,7 +221,7 @@ function convertModel(
   const textureIds = new Set<string>();
   for (const element of elements) {
     for (const face of Object.values(element.faces ?? {})) {
-      const id = resolveFaceTexture(resolved.textures, face.texture);
+      const id = resolveTextureRef(resolved.textures, face.texture);
       if (id !== undefined) textureIds.add(id);
     }
   }
@@ -307,7 +315,7 @@ function convertModel(
   const faceTexture = (element: JavaElement, faceName: JavaFaceName) => {
     const face = element.faces?.[faceName];
     if (face === undefined) return undefined;
-    const id = resolveFaceTexture(resolved.textures, face.texture);
+    const id = resolveTextureRef(resolved.textures, face.texture);
     return id !== undefined ? atlas.placements.get(id) : undefined;
   };
   const geo = timeOp("geometry.build", () =>
@@ -365,7 +373,7 @@ function convertModel(
   }
 
   // 7. Icon: sprites.json override → isometric software render of the model.
-  const iconKey = pickIcon(ctx, modelId, name, resolved, images, encodeJobs);
+  const iconKey = pickIcon(ctx, modelId, name, resolved, images, encodeJobs, spritesJson);
 
   // 8. Register a mapping entry per variant, and an attachable per unique
   // bedrock identifier (definitions may get item-model based identifiers, so
@@ -428,10 +436,6 @@ function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
   return p !== undefined && "threshold" in p ? p.threshold : undefined;
 }
 
-function resolveFaceTexture(textures: Record<string, string>, ref: string): string | undefined {
-  return resolveTextureRef(textures, ref);
-}
-
 /**
  * GeyserDisplayEntity y-offset for a furniture model: negate the model's
  * vertical centre in blocks. Java model units are 1/16 block; the extension's
@@ -457,6 +461,7 @@ function pickIcon(
   resolved: ResolvedModel,
   images: Map<string, RgbaImage>,
   encodeJobs: EncodeJob[],
+  spritesJson: Record<string, string>,
 ): string {
   const iconKey = `${name}_icon`;
   if (ctx.itemTextures.has(iconKey)) return iconKey;
@@ -464,8 +469,7 @@ function pickIcon(
 
   // Optional pack-provided icon overrides: sprites.json at pack root mapping
   // model id → texture resource location (same convention as java2bedrock).
-  const sprites = ctx.java.readJson<Record<string, string>>("sprites.json");
-  const override = sprites?.[modelId];
+  const override = spritesJson[modelId];
   let image: RgbaImage | undefined;
   if (override !== undefined) {
     const bytes = ctx.java.read(ctx.java.assetPath("textures", override, ".png"));
@@ -479,7 +483,7 @@ function pickIcon(
       (element, faceName) => {
         const face = element.faces?.[faceName];
         if (face === undefined) return undefined;
-        const id = resolveFaceTexture(resolved.textures, face.texture);
+        const id = resolveTextureRef(resolved.textures, face.texture);
         const tex = id !== undefined ? images.get(id) : undefined;
         if (tex === undefined) return undefined;
         return { image: tex, uv: face.uv ?? defaultUv(faceName, element.from, element.to) };

@@ -50,7 +50,10 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
-  const packName = url.searchParams.get("packName") ?? "converted_pack";
+  const rawPackName = url.searchParams.get("packName") ?? "converted_pack";
+  // Sanitize: strip control chars, path separators, quotes — prevents header
+  // injection and path traversal in the zip entry / content-disposition.
+  const packName = rawPackName.replace(/[\x00-\x1F\x7F\/\\":]/g, "").slice(0, 80) || "converted_pack";
   const options: Partial<ConvertOptions> = { packName };
   const material = url.searchParams.get("attachableMaterial");
   if (material) options.attachableMaterial = material;
