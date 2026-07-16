@@ -310,11 +310,17 @@ function convertModel(
     const id = resolveFaceTexture(resolved.textures, face.texture);
     return id !== undefined ? atlas.placements.get(id) : undefined;
   };
+  // Crossbows render backward on Bedrock (its native crossbow hold aims the
+  // item bone opposite to the Java model), so re-aim their geometry 180°.
+  const flipFacing = groupBaseItem(ctx, group) === "minecraft:crossbow";
   const geo = timeOp("geometry.build", () =>
-    buildGeometry(geometryId, elements, faceTexture, {
-      width: atlas.image.width,
-      height: atlas.image.height,
-    }),
+    buildGeometry(
+      geometryId,
+      elements,
+      faceTexture,
+      { width: atlas.image.width, height: atlas.image.height },
+      { flipFacing },
+    ),
   );
   timeOp("json.write", () =>
     ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}.geo.json`, geo.geometry),
@@ -417,6 +423,27 @@ function convertModel(
   } else {
     ctx.report.converted("items-3d", modelId, outputs);
   }
+}
+
+/**
+ * Resolve the vanilla host item for a geometry group (pack-declared, then
+ * config base-item hints) — mirrors resolveBaseItem's lookup without its
+ * reporting side effects. Used to detect crossbows for the facing flip.
+ */
+function groupBaseItem(ctx: ConversionContext, group: PendingGeometry[]): string | undefined {
+  for (const { variant } of group) {
+    if (variant.baseItem !== undefined) return variant.baseItem;
+    const keys: string[] = [];
+    if (variant.source.kind === "modern") {
+      keys.push(parseResourceLocation(variant.source.itemModelId).path.toLowerCase());
+    }
+    keys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
+    for (const k of keys) {
+      const hinted = ctx.options.baseItemHints[k];
+      if (hinted !== undefined) return hinted;
+    }
+  }
+  return undefined;
 }
 
 /** custom_model_data value of a variant (legacy field or modern range_dispatch predicate). */

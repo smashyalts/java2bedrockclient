@@ -42,6 +42,17 @@ export function buildGeometry(
   elements: JavaElement[],
   faceTexture: (element: JavaElement, face: JavaFaceName) => AtlasPlacement | undefined,
   atlasSize: { width: number; height: number },
+  options?: {
+    /**
+     * Rotate the finished geometry 180° about its vertical axis. Bedrock's
+     * built-in crossbow first-person hold points the item bone the opposite
+     * way to how the Java model is authored, so a converted crossbow renders
+     * facing backward (string outward). Flipping the geometry re-aims it while
+     * leaving the software-rendered icon (built from the raw Java model)
+     * untouched.
+     */
+    flipFacing?: boolean;
+  },
 ): GeometryBuild {
   let usedUvRotation = false;
   const cubes: BedrockCube[] = [];
@@ -104,6 +115,8 @@ export function buildGeometry(
     cubes.push(cube);
   }
 
+  if (options?.flipFacing === true) flip180AboutY(cubes);
+
   // Visible bounds from actual extents — undersized bounds make large models
   // (greatswords, backpacks) pop out of view at screen edges.
   let maxHorizontal = 16;
@@ -150,6 +163,31 @@ export function buildGeometry(
   };
 
   return { geometry, usedUvRotation };
+}
+
+/**
+ * Rotate every cube 180° about the vertical axis through the model's horizontal
+ * centre (in place). Position: (x,z) reflect about the centre. Rotation: a 180°
+ * Y turn negates the X and Z euler components and leaves Y; our cubes only ever
+ * carry a single-axis rotation, so this is exact. Pivots reflect like positions.
+ */
+function flip180AboutY(cubes: BedrockCube[]): void {
+  if (cubes.length === 0) return;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const c of cubes) {
+    minX = Math.min(minX, c.origin[0]);
+    maxX = Math.max(maxX, c.origin[0] + c.size[0]);
+    minZ = Math.min(minZ, c.origin[2]);
+    maxZ = Math.max(maxZ, c.origin[2] + c.size[2]);
+  }
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  for (const c of cubes) {
+    // After a 180° turn the cube's far corner becomes its near corner.
+    c.origin = [2 * cx - (c.origin[0] + c.size[0]), c.origin[1], 2 * cz - (c.origin[2] + c.size[2])];
+    if (c.rotation) c.rotation = [-c.rotation[0], c.rotation[1], -c.rotation[2]];
+    if (c.pivot) c.pivot = [2 * cx - c.pivot[0], c.pivot[1], 2 * cz - c.pivot[2]];
+  }
 }
 
 /** Vanilla default UVs derived from element bounds (Java behaviour when face.uv is omitted). */
