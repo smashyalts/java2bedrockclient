@@ -11,7 +11,7 @@ import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { fastHash } from "../../util/hash.js";
-import type { JavaElement, JavaFaceName } from "../../java/model.js";
+import type { JavaDisplayTransform, JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
 import { resolveTextureRef } from "../../resolve/modelResolver.js";
 
@@ -376,11 +376,18 @@ function convertModel(
   // 8. Register a mapping entry per variant, and an attachable per unique
   // bedrock identifier (definitions may get item-model based identifiers, so
   // one shared model can back several bedrock items).
-  // Furniture (GeyserDisplayEntity) stand-in offset: place the model's vertical
-  // centre at the entity origin. The extension's default -0.5 = -(8/16) centres
-  // a standard 1-block item; deriving from real Y-bounds keeps tall furniture
-  // (e.g. chairs spanning y 0..23) from floating.
-  const furnitureYOffset = elements.length > 0 ? furnitureOffsetFromElements(elements) : undefined;
+  // Furniture (GeyserDisplayEntity) placement. Java renders an item_display
+  // with the model's `display.fixed` transform baked in — critically a rotation
+  // (e.g. -90° about X) that stands a model authored lying-down upright, plus a
+  // scale. The Bedrock attachable carries none of that, so furniture renders
+  // flat / at the wrong height. We (a) emit the fixed rotation into the
+  // extension's `displayentityoptions.rotation` so it stands up, and (b) derive
+  // the y-offset from the model bounds AFTER applying that rotation+scale, so a
+  // stood-up chair is seated by its real (tall) height, not its flat one.
+  const furnitureFixed = resolved.display?.fixed;
+  const furnitureYOffset =
+    elements.length > 0 ? furnitureOffsetFromElements(elements, furnitureFixed) : undefined;
+  const furnitureRotation = nonZeroRotation(furnitureFixed?.rotation);
 
   // Furniture with a fully-opaque texture can render with the vanilla
   // `entity_nocull` material, which disables back-face culling so concave
@@ -399,7 +406,12 @@ function convertModel(
 
   const attachableIds = new Set<string>();
   for (const { variant } of group) {
-    const definition = buildDefinition(ctx, variant, { icon: iconKey, displayHandheld: false, furnitureYOffset });
+    const definition = buildDefinition(ctx, variant, {
+      icon: iconKey,
+      displayHandheld: false,
+      furnitureYOffset,
+      furnitureRotation,
+    });
     ctx.definitionTextures.set(definition, [...textureIds]);
     const identifier = definition.bedrock_identifier!;
     if (attachableIds.has(identifier)) continue;
@@ -510,19 +522,61 @@ function resolveFaceTexture(textures: Record<string, string>, ref: string): stri
 /**
  * GeyserDisplayEntity y-offset for a furniture model: negate the model's
  * vertical centre in blocks. Java model units are 1/16 block; the extension's
- * default -0.5 corresponds to a model centred at y=8, so this generalises it to
- * any height (rotations ignored — the axis-aligned span is a good approximation
- * for the near-upright furniture models this targets).
+ * default -0.5 corresponds to a model centred at y=8. When the model carries a
+ * `display.fixed` rotation (item_displays bake it in, and we emit it too), we
+ * rotate the element corners first, so a chair authored lying down — whose
+ * height comes from its Z span until a -90° X rotation stands it up — is seated
+ * by its true upright height rather than its flat one. The fixed scale is left
+ * out: the attachable renders at the model's natural size unless the tester
+ * turns on `vanilla-scale`, so folding scale in here would overshoot.
  */
-function furnitureOffsetFromElements(elements: JavaElement[]): number {
+function furnitureOffsetFromElements(
+  elements: JavaElement[],
+  fixed?: JavaDisplayTransform,
+): number {
+  const rot = fixed?.rotation ?? [0, 0, 0];
+  const pivot = 8; // Minecraft display transforms pivot about the [8,8,8] centre.
   let minY = Infinity;
   let maxY = -Infinity;
   for (const el of elements) {
-    minY = Math.min(minY, el.from[1], el.to[1]);
-    maxY = Math.max(maxY, el.from[1], el.to[1]);
+    for (const x of [el.from[0], el.to[0]]) {
+      for (const y of [el.from[1], el.to[1]]) {
+        for (const z of [el.from[2], el.to[2]]) {
+          const v: [number, number, number] = [x - pivot, y - pivot, z - pivot];
+          const ty = rotateXYZ(v, rot)[1] + pivot;
+          minY = Math.min(minY, ty);
+          maxY = Math.max(maxY, ty);
+        }
+      }
+    }
   }
   if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return -0.5;
   return -((minY + maxY) / 2 / 16);
+}
+
+/** Rotate a vector by Euler angles (degrees) in Minecraft's X·Y·Z order. */
+function rotateXYZ(
+  v: [number, number, number],
+  deg: [number, number, number],
+): [number, number, number] {
+  const [ax, ay, az] = deg.map((d) => (d * Math.PI) / 180) as [number, number, number];
+  let [x, y, z] = v;
+  // (Rx·Ry·Rz)·v — apply Rz, then Ry, then Rx.
+  let c = Math.cos(az), s = Math.sin(az);
+  [x, y] = [x * c - y * s, x * s + y * c];
+  c = Math.cos(ay), s = Math.sin(ay);
+  [x, z] = [x * c + z * s, -x * s + z * c];
+  c = Math.cos(ax), s = Math.sin(ax);
+  [y, z] = [y * c - z * s, y * s + z * c];
+  return [x, y, z];
+}
+
+/** A fixed rotation worth emitting — undefined when absent or all-zero. */
+function nonZeroRotation(
+  rot?: [number, number, number],
+): [number, number, number] | undefined {
+  if (rot === undefined) return undefined;
+  return rot.some((a) => a !== 0) ? rot : undefined;
 }
 
 function pickIcon(

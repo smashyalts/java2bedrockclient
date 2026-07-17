@@ -186,6 +186,14 @@ export interface ConversionContext {
      * this generalises it so tall furniture doesn't float.
      */
     yOffset?: number;
+    /**
+     * Java `display.fixed` rotation (degrees, [x,y,z]) baked by the client for
+     * item_displays but dropped by the attachable. Emitted into the extension's
+     * `displayentityoptions.rotation` so furniture that's modelled lying down
+     * (a chair with a -90 X rotation) stands upright on Bedrock instead of
+     * rendering flat. Omitted when the model has no fixed rotation.
+     */
+    rotation?: [number, number, number];
   }[];
 }
 

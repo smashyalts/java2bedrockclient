@@ -222,6 +222,39 @@ items:
     expect(cfg).toContain('- "minecraft:leather_horse_armor"');
   });
 
+  it("emits display.fixed rotation and seats furniture by its stood-up height", async () => {
+    // A chair modelled lying down: tall span is along Z (0..24), thin in Y.
+    // Java's display.fixed rotation [-90,0,0] stands it upright; without it the
+    // Bedrock attachable renders flat. We emit that rotation and derive the
+    // y-offset from the rotated bounds (Z→Y), so it's seated by its real height.
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/lying_chair.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/lying_chair" },
+      }),
+      "assets/nexo/models/item/lying_chair.json": JSON.stringify({
+        textures: { "1": "nexo:item/lying_chair" },
+        elements: [
+          { from: [4, 6, 0], to: [12, 10, 24], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
+        ],
+        display: { fixed: { rotation: [-90, 0, 0] } },
+      }),
+      "assets/nexo/textures/item/lying_chair.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Chair",
+      baseItemHints: { lying_chair: "minecraft:paper" },
+      furnitureItems: ["lying_chair"],
+    });
+    const yml = result.displayEntityMappings!;
+    // Fixed rotation carried into the extension mapping.
+    expect(yml).toContain("rotation: [-90.0, 0.0, 0.0]");
+    // Rotated bounds: Z 0..24 becomes the vertical span, centre ~ -4 units off
+    // the pivot → offset well below the flat-model default, not -0.500.
+    expect(yml).not.toContain("y-offset: -0.500");
+    expect(yml).toMatch(/y-offset: -0\.(6|7|8)/);
+  });
+
   it("omits the furniture config.yml when no furniture uses a hidden base item", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),

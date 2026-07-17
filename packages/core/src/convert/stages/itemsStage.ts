@@ -189,7 +189,13 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
 export function buildDefinition(
   ctx: ConversionContext,
   variant: ItemVariant,
-  bedrock: { icon: string; displayHandheld: boolean; protectionValue?: number; furnitureYOffset?: number },
+  bedrock: {
+    icon: string;
+    displayHandheld: boolean;
+    protectionValue?: number;
+    furnitureYOffset?: number;
+    furnitureRotation?: [number, number, number];
+  },
 ): GeyserItemDefinition {
   // Resolve the host item early — it also keys the config cmd lookup below.
   const baseItem = resolveBaseItem(ctx, variant);
@@ -278,6 +284,7 @@ export function buildDefinition(
         identifier: identifierName,
         ...(cmdValue !== undefined ? { modelData: cmdValue } : {}),
         ...(bedrock.furnitureYOffset !== undefined ? { yOffset: bedrock.furnitureYOffset } : {}),
+        ...(bedrock.furnitureRotation !== undefined ? { rotation: bedrock.furnitureRotation } : {}),
       });
     }
   }
