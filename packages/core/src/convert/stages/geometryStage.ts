@@ -382,6 +382,21 @@ function convertModel(
   // (e.g. chairs spanning y 0..23) from floating.
   const furnitureYOffset = elements.length > 0 ? furnitureOffsetFromElements(elements) : undefined;
 
+  // Furniture with a fully-opaque texture can render with the vanilla
+  // `entity_nocull` material, which disables back-face culling so concave
+  // pieces (sofas, chairs) keep the interior faces Bedrock would otherwise cull
+  // — the "missing faces" bug. This is a stock vanilla material (no custom
+  // .material file, which needs a materials/common.json manifest that would
+  // override vanilla's and is too fragile to ship). It only works when the
+  // texture has no transparency: `entity_nocull` has no alpha test, so a
+  // cutout texture would render its transparent pixels as solid. Transparent
+  // furniture therefore stays one-sided (accepted limitation — no vanilla
+  // material is both alpha-tested and double-sided).
+  const attachableMaterial =
+    isFurnitureGroup(ctx, group) && images.size > 0 && [...images.values()].every(isFullyOpaque)
+      ? "entity_nocull"
+      : ctx.options.attachableMaterial;
+
   const attachableIds = new Set<string>();
   for (const { variant } of group) {
     const definition = buildDefinition(ctx, variant, { icon: iconKey, displayHandheld: false, furnitureYOffset });
@@ -393,7 +408,7 @@ function convertModel(
       `attachables/geyser_custom/${safeName(identifier.split(":")[1] ?? identifier)}.json`,
       buildItemAttachable({
         identifier,
-        material: ctx.options.attachableMaterial,
+        material: attachableMaterial,
         texture: atlasPath,
         geometry: geometryId,
         animations: anims.refs,
@@ -444,6 +459,39 @@ function groupBaseItem(ctx: ConversionContext, group: PendingGeometry[]): string
     }
   }
   return undefined;
+}
+
+/**
+ * True when any variant in the group is a world-placed furniture item (matched
+ * by config key / item-model id / model name against `furnitureItems`). Mirrors
+ * the furniture-key matching in itemsStage's buildDefinition.
+ */
+function isFurnitureGroup(ctx: ConversionContext, group: PendingGeometry[]): boolean {
+  const furniture = ctx.options.furnitureItems;
+  if (furniture.length === 0) return false;
+  return group.some(({ variant }) => {
+    const keys: string[] = [];
+    const baseItem = variant.baseItem ?? groupBaseItem(ctx, group);
+    const cmd = cmdOf(variant);
+    if (baseItem !== undefined && cmd !== undefined) {
+      const k = ctx.options.cmdItemKeys[`${baseItem}|${cmd}`];
+      if (k !== undefined) keys.push(k);
+    }
+    if (variant.source.kind === "modern") {
+      keys.push(parseResourceLocation(variant.source.itemModelId).path.toLowerCase());
+    }
+    keys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
+    return keys.some((k) => furniture.includes(k));
+  });
+}
+
+/** True when every pixel of the image is fully opaque (alpha === 255). */
+function isFullyOpaque(image: RgbaImage): boolean {
+  const { data } = image;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 255) return false;
+  }
+  return true;
 }
 
 /** custom_model_data value of a variant (legacy field or modern range_dispatch predicate). */

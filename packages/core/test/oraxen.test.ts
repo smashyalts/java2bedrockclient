@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { zipSync } from "fflate";
 import { convertPack, parseOraxenConfigZip } from "../src/index.js";
+import { readZipDetailed } from "../src/io/zip.js";
 import { encode } from "fast-png";
 
 function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
@@ -14,6 +15,27 @@ function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
 function png(): Uint8Array {
   const data = new Uint8Array(16 * 16 * 4).fill(99);
   return new Uint8Array(encode({ width: 16, height: 16, data, channels: 4 }));
+}
+
+/** Fully-opaque PNG (all pixels alpha 255) — colour channels set, alpha solid. */
+function opaquePng(): Uint8Array {
+  const data = new Uint8Array(16 * 16 * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 120;
+    data[i + 1] = 80;
+    data[i + 2] = 40;
+    data[i + 3] = 255;
+  }
+  return new Uint8Array(encode({ width: 16, height: 16, data, channels: 4 }));
+}
+
+/** All attachable JSON files in the pack, keyed by path. */
+function attachables(mcpack: Uint8Array): { path: string; json: any }[] {
+  const { vfs } = readZipDetailed(mcpack);
+  return vfs
+    .list()
+    .filter((p) => p.startsWith("attachables/") && p.endsWith(".json"))
+    .map((p) => ({ path: p, json: JSON.parse(new TextDecoder().decode(vfs.read(p)!)) }));
 }
 
 const ORAXEN_YML = `
@@ -220,6 +242,60 @@ items:
     expect(result.displayEntityMappings).toBeDefined();
     // paper isn't hidden by default → no config.yml needed.
     expect(result.displayEntityConfig).toBeUndefined();
+  });
+
+  it("renders opaque 3D furniture double-sided (entity_nocull) so concave pieces keep their faces", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/sofa.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/sofa" },
+      }),
+      "assets/nexo/models/item/sofa.json": JSON.stringify({
+        textures: { "1": "nexo:item/sofa" },
+        elements: [
+          { from: [0, 0, 0], to: [16, 8, 16], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
+        ],
+      }),
+      "assets/nexo/textures/item/sofa.png": opaquePng(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Sofa",
+      baseItemHints: { sofa: "minecraft:paper" },
+      furnitureItems: ["sofa"],
+    });
+    const files = attachables(result.mcpack);
+    expect(files.length).toBeGreaterThan(0);
+    // Opaque furniture → vanilla double-sided material (no back-face culling).
+    for (const { json } of files) {
+      expect(json["minecraft:attachable"].description.materials.default).toBe("entity_nocull");
+    }
+  });
+
+  it("keeps transparent 3D furniture one-sided (entity_nocull would show cutout pixels as solid)", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/lamp.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/lamp" },
+      }),
+      "assets/nexo/models/item/lamp.json": JSON.stringify({
+        textures: { "1": "nexo:item/lamp" },
+        elements: [
+          { from: [0, 0, 0], to: [16, 8, 16], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
+        ],
+      }),
+      // png() fills alpha 99 → has transparency.
+      "assets/nexo/textures/item/lamp.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Lamp",
+      baseItemHints: { lamp: "minecraft:paper" },
+      furnitureItems: ["lamp"],
+    });
+    const files = attachables(result.mcpack);
+    expect(files.length).toBeGreaterThan(0);
+    for (const { json } of files) {
+      expect(json["minecraft:attachable"].description.materials.default).not.toBe("entity_nocull");
+    }
   });
 
   it("maps modern item definitions under hinted base items", async () => {
