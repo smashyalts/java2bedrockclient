@@ -11,7 +11,7 @@ const elements: JavaElement[] = [
   { from: [4, 0, 14], to: [12, 4, 16], faces: { up: { texture: "#t" } } } as JavaElement,
 ];
 
-function cubesOf(geo: object): { origin: number[]; size: number[] }[] {
+function cubesOf(geo: object): { origin: number[]; size: number[]; rotation?: number[] }[] {
   return (geo as any)["minecraft:geometry"][0].bones.at(-1).cubes;
 }
 
@@ -22,6 +22,27 @@ describe("geometry facing flip (crossbow)", () => {
     // origin.z = from.z - 8 → front bar at -8, back bar at 6.
     expect(cubes[0]!.origin[2]).toBe(-8);
     expect(cubes[1]!.origin[2]).toBe(6);
+  });
+
+  it("turns a Y-rotated cube by +180° so splayed limbs re-aim (not just reposition)", () => {
+    // A limb splayed by a Java Y-axis rotation. buildGeometry stores it as a
+    // bedrock cube rotation [0, -angle, 0]; a 180° flip must add 180° to that Y
+    // angle, otherwise the limb stays pointing the original way and the whole
+    // model reads as 180° off (the crossbow-facing-backward symptom).
+    const limb: JavaElement[] = [
+      {
+        from: [4, 0, 0],
+        to: [12, 4, 2],
+        rotation: { angle: 22.5, axis: "y", origin: [8, 2, 1] },
+        faces: { up: { texture: "#t" } },
+      } as JavaElement,
+    ];
+    const flat = buildGeometry("geometry.x", limb, faceTexture, { width: 16, height: 16 });
+    const flipped = buildGeometry("geometry.x", limb, faceTexture, { width: 16, height: 16 }, { flipFacing: true });
+    // Java +22.5° about Y → bedrock [0, -22.5, 0].
+    expect(cubesOf(flat.geometry)[0]!.rotation).toEqual([0, -22.5, 0]);
+    // +180° → -22.5 + 180 = 157.5.
+    expect(cubesOf(flipped.geometry)[0]!.rotation).toEqual([0, 157.5, 0]);
   });
 
   it("swaps front and back when flipFacing is set (180° about Y)", () => {

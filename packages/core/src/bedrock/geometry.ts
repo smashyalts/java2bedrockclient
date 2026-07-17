@@ -167,9 +167,13 @@ export function buildGeometry(
 
 /**
  * Rotate every cube 180° about the vertical axis through the model's horizontal
- * centre (in place). Position: (x,z) reflect about the centre. Rotation: a 180°
- * Y turn negates the X and Z euler components and leaves Y; our cubes only ever
- * carry a single-axis rotation, so this is exact. Pivots reflect like positions.
+ * centre (in place). Position: (x,z) reflect about the centre; pivots likewise.
+ * Rotation: baking a 180° Y turn into a cube's own single-axis rotation is
+ *   X-axis angle → −angle,  Z-axis angle → −angle,  Y-axis angle → angle + 180.
+ * The Y case matters for models built from Y-splayed parts (a crossbow's limbs):
+ * reflecting their positions alone leaves each limb still angled the original
+ * way, so the whole model reads as 180° off. Adding 180° to the Y angle turns
+ * each limb to match. Our cubes only ever carry a single-axis rotation.
  */
 function flip180AboutY(cubes: BedrockCube[]): void {
   if (cubes.length === 0) return;
@@ -185,9 +189,23 @@ function flip180AboutY(cubes: BedrockCube[]): void {
   for (const c of cubes) {
     // After a 180° turn the cube's far corner becomes its near corner.
     c.origin = [2 * cx - (c.origin[0] + c.size[0]), c.origin[1], 2 * cz - (c.origin[2] + c.size[2])];
-    if (c.rotation) c.rotation = [-c.rotation[0], c.rotation[1], -c.rotation[2]];
+    if (c.rotation) {
+      const [rx, ry, rz] = c.rotation;
+      c.rotation = [
+        rx === 0 ? 0 : -rx,
+        ry === 0 ? 0 : wrapDegrees(ry + 180),
+        rz === 0 ? 0 : -rz,
+      ];
+    }
     if (c.pivot) c.pivot = [2 * cx - c.pivot[0], c.pivot[1], 2 * cz - c.pivot[2]];
   }
+}
+
+/** Wrap an angle in degrees to (−180, 180]. */
+function wrapDegrees(deg: number): number {
+  let d = ((deg % 360) + 360) % 360;
+  if (d > 180) d -= 360;
+  return d;
 }
 
 /** Vanilla default UVs derived from element bounds (Java behaviour when face.uv is omitted). */
