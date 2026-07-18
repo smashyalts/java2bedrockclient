@@ -534,7 +534,13 @@ function furnitureOffsetFromElements(
   elements: JavaElement[],
   fixed?: JavaDisplayTransform,
 ): number {
-  const rot = fixed?.rotation ?? [0, 0, 0];
+  // Match the rotation the extension actually applies: it negates the Y and Z
+  // euler components (Java→Bedrock handedness) in pushRotationProperties, so a
+  // chair's [-90,90,0] renders as [-90,-90,0]. Computing the offset from the
+  // raw Java rotation instead seated chairs (ry≠0) wrong while sofas (ry=0)
+  // stayed correct.
+  const r = fixed?.rotation ?? [0, 0, 0];
+  const rot: [number, number, number] = [r[0]!, -r[1]!, -r[2]!];
   const pivot = 8; // Minecraft display transforms pivot about the [8,8,8] centre.
   let minY = Infinity;
   let maxY = -Infinity;
