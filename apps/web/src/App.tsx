@@ -75,6 +75,32 @@ export function App() {
         </p>
       </header>
 
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <a
+          href="https://ko-fi.com/progamingdk"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            background: "#ff5e5b",
+            color: "#fff",
+            fontWeight: 700,
+            fontSize: 15,
+            textDecoration: "none",
+            padding: "10px 22px",
+            borderRadius: 999,
+            boxShadow: "0 2px 10px rgba(255,94,91,0.4)",
+          }}
+        >
+          ☕ Support development on Ko-fi
+        </a>
+        <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
+          Free & open source — donations help cover dev costs.
+        </div>
+      </div>
+
       {phase.kind === "idle" && (
         <>
           <DropZone onFile={handleFile} />
@@ -265,6 +291,28 @@ export function App() {
           </button>
         </div>
       )}
+
+      <footer
+        style={{
+          textAlign: "center",
+          marginTop: 48,
+          paddingTop: 24,
+          borderTop: "1px solid var(--border)",
+          color: "var(--muted)",
+          fontSize: 13,
+        }}
+      >
+        Free & open source. If it saved you time, you can{" "}
+        <a
+          href="https://ko-fi.com/progamingdk"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "var(--accent)", fontWeight: 600 }}
+        >
+          support development on Ko-fi ☕
+        </a>{" "}
+        to help cover dev costs.
+      </footer>
     </div>
   );
 }
