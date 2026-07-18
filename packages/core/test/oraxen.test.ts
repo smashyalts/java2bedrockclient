@@ -29,6 +29,21 @@ function opaquePng(): Uint8Array {
   return new Uint8Array(encode({ width: 16, height: 16, data, channels: 4 }));
 }
 
+/** PNG opaque only in the top-left 8×8 (UV 0..8), transparent padding elsewhere. */
+function paddedPng(): Uint8Array {
+  const data = new Uint8Array(16 * 16 * 4);
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const i = (y * 16 + x) * 4;
+      data[i] = 100;
+      data[i + 1] = 60;
+      data[i + 2] = 30;
+      data[i + 3] = x < 8 && y < 8 ? 255 : 0;
+    }
+  }
+  return new Uint8Array(encode({ width: 16, height: 16, data, channels: 4 }));
+}
+
 /** All attachable JSON files in the pack, keyed by path. */
 function attachables(mcpack: Uint8Array): { path: string; json: any }[] {
   const { vfs } = readZipDetailed(mcpack);
@@ -299,6 +314,42 @@ items:
     const files = attachables(result.mcpack);
     expect(files.length).toBeGreaterThan(0);
     // Opaque furniture → vanilla double-sided material (no back-face culling).
+    for (const { json } of files) {
+      expect(json["minecraft:attachable"].description.materials.default).toBe("entity_nocull");
+    }
+  });
+
+  it("double-sides furniture that samples only opaque texels of a padded texture", async () => {
+    // Texture is opaque in UV 0..8 and transparent padding elsewhere. The face
+    // samples only the opaque region → entity_nocull. A whole-texture opacity
+    // check would wrongly see the padding and keep it one-sided.
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/padded_sofa.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/padded_sofa" },
+      }),
+      "assets/nexo/models/item/padded_sofa.json": JSON.stringify({
+        textures: { "1": "nexo:item/padded_sofa" },
+        elements: [
+          {
+            from: [0, 0, 0],
+            to: [16, 8, 16],
+            faces: {
+              north: { texture: "#1", uv: [0, 0, 8, 8] },
+              up: { texture: "#1", uv: [0, 0, 8, 8] },
+            },
+          },
+        ],
+      }),
+      "assets/nexo/textures/item/padded_sofa.png": paddedPng(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Padded",
+      baseItemHints: { padded_sofa: "minecraft:paper" },
+      furnitureItems: ["padded_sofa"],
+    });
+    const files = attachables(result.mcpack);
+    expect(files.length).toBeGreaterThan(0);
     for (const { json } of files) {
       expect(json["minecraft:attachable"].description.materials.default).toBe("entity_nocull");
     }

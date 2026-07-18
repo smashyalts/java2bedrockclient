@@ -389,18 +389,18 @@ function convertModel(
     elements.length > 0 ? furnitureOffsetFromElements(elements, furnitureFixed) : undefined;
   const furnitureRotation = nonZeroRotation(furnitureFixed?.rotation);
 
-  // Furniture with a fully-opaque texture can render with the vanilla
-  // `entity_nocull` material, which disables back-face culling so concave
-  // pieces (sofas, chairs) keep the interior faces Bedrock would otherwise cull
-  // — the "missing faces" bug. This is a stock vanilla material (no custom
-  // .material file, which needs a materials/common.json manifest that would
-  // override vanilla's and is too fragile to ship). It only works when the
-  // texture has no transparency: `entity_nocull` has no alpha test, so a
-  // cutout texture would render its transparent pixels as solid. Transparent
-  // furniture therefore stays one-sided (accepted limitation — no vanilla
-  // material is both alpha-tested and double-sided).
+  // Furniture whose faces sample only opaque texels can render with the vanilla
+  // `entity_nocull` material, which disables back-face culling so concave pieces
+  // (sofas, chairs) keep the interior faces Bedrock would otherwise cull — the
+  // "missing faces" bug. This is a stock vanilla material (no custom .material
+  // file, which needs a materials/common.json manifest — too fragile to ship).
+  // It has no alpha test, so a cutout texture would render its transparent
+  // pixels as solid; we therefore check the texels the model actually samples
+  // (not the whole atlas — furniture textures carry transparent padding that
+  // never lands on a face). Genuinely cutout furniture (lamps, plants) still
+  // samples transparency and stays one-sided.
   const attachableMaterial =
-    isFurnitureGroup(ctx, group) && images.size > 0 && [...images.values()].every(isFullyOpaque)
+    isFurnitureGroup(ctx, group) && furnitureFacesOpaque(elements, resolved.textures, images)
       ? "entity_nocull"
       : ctx.options.attachableMaterial;
 
@@ -497,11 +497,51 @@ function isFurnitureGroup(ctx: ConversionContext, group: PendingGeometry[]): boo
   });
 }
 
-/** True when every pixel of the image is fully opaque (alpha === 255). */
-function isFullyOpaque(image: RgbaImage): boolean {
-  const { data } = image;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] !== 255) return false;
+const FACE_NAMES: JavaFaceName[] = ["north", "south", "east", "west", "up", "down"];
+
+/**
+ * True when every texel the model's faces actually sample is fully opaque
+ * (alpha === 255). Unlike scanning the whole texture, this ignores transparent
+ * padding around the used regions — furniture atlases are mostly padding — so
+ * solid furniture qualifies for the double-sided `entity_nocull` material while
+ * genuinely cutout pieces (which sample transparent texels) don't. Returns
+ * false if nothing is sampled (no faces → nothing to double-side).
+ */
+function furnitureFacesOpaque(
+  elements: JavaElement[],
+  textures: Record<string, string>,
+  images: Map<string, RgbaImage>,
+): boolean {
+  let sampledAny = false;
+  for (const el of elements) {
+    if (el.faces === undefined) continue;
+    for (const faceName of FACE_NAMES) {
+      const face = el.faces[faceName];
+      if (face === undefined) continue;
+      const id = resolveFaceTexture(textures, face.texture);
+      if (id === undefined) continue;
+      const image = images.get(id);
+      if (image === undefined) continue;
+      const uv = face.uv ?? defaultUv(faceName, el.from, el.to);
+      if (!regionOpaque(image, uv)) return false;
+      sampledAny = true;
+    }
+  }
+  return sampledAny;
+}
+
+/** True when every texel in the Java 0–16 UV rect of the image is opaque. */
+function regionOpaque(image: RgbaImage, uv: [number, number, number, number]): boolean {
+  const { width, height, data } = image;
+  const clamp = (v: number, hi: number) => Math.max(0, Math.min(hi, v));
+  const x0 = clamp(Math.floor((Math.min(uv[0], uv[2]) / 16) * width), width);
+  const x1 = clamp(Math.ceil((Math.max(uv[0], uv[2]) / 16) * width), width);
+  const y0 = clamp(Math.floor((Math.min(uv[1], uv[3]) / 16) * height), height);
+  const y1 = clamp(Math.ceil((Math.max(uv[1], uv[3]) / 16) * height), height);
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      if (data[(y * width + x) * 4 + 3] !== 255) return false;
+    }
   }
   return true;
 }
