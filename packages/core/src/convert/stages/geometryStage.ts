@@ -13,6 +13,7 @@ import { parseResourceLocation } from "../../java/javaPack.js";
 import { fastHash } from "../../util/hash.js";
 import type { JavaDisplayTransform, JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
+import { inferHostItemFromModel } from "../../resolve/modelResolver.js";
 import { resolveTextureRef } from "../../resolve/modelResolver.js";
 
 /** 2x2 magenta placeholder for missing textures (classic "missing texture" look). */
@@ -454,8 +455,9 @@ function convertModel(
 
 /**
  * Resolve the vanilla host item for a geometry group (pack-declared, then
- * config base-item hints) — mirrors resolveBaseItem's lookup without its
- * reporting side effects. Used to detect crossbows for the facing flip.
+ * config base-item hints, then model parent chain) — mirrors resolveBaseItem's
+ * lookup without its reporting side effects. Used to detect crossbows for the
+ * facing flip.
  */
 function groupBaseItem(ctx: ConversionContext, group: PendingGeometry[]): string | undefined {
   for (const { variant } of group) {
@@ -469,6 +471,8 @@ function groupBaseItem(ctx: ConversionContext, group: PendingGeometry[]): string
       const hinted = ctx.options.baseItemHints[k];
       if (hinted !== undefined) return hinted;
     }
+    const inferred = inferHostItemFromModel(ctx.java, variant.model, ctx.inferredHostItems);
+    if (inferred !== undefined) return inferred;
   }
   return undefined;
 }

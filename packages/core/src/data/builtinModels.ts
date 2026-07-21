@@ -114,6 +114,51 @@ export const BUILTIN_MODELS: Record<string, JavaModel> = {
   "minecraft:block/tinted_cross": {
     parent: "minecraft:block/cross",
   },
+
+  // --- Vanilla item model parents ---
+  // Packs reference these without shipping them. Only the `parent` field is
+  // needed — the resolver follows the chain to the generic terminal parent
+  // (generated / handheld / handheld_rod) for kind classification, and
+  // inferHostItemFromModel uses the specific vanilla item name in the chain
+  // to infer the host item for custom-namespace modern items.
+  "minecraft:item/diamond_sword": { parent: "minecraft:item/handheld" },
+  "minecraft:item/iron_sword": { parent: "minecraft:item/handheld" },
+  "minecraft:item/golden_sword": { parent: "minecraft:item/handheld" },
+  "minecraft:item/netherite_sword": { parent: "minecraft:item/handheld" },
+  "minecraft:item/stone_sword": { parent: "minecraft:item/handheld" },
+  "minecraft:item/wooden_sword": { parent: "minecraft:item/handheld" },
+  "minecraft:item/diamond_pickaxe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/iron_pickaxe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/golden_pickaxe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/netherite_pickaxe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/stone_pickaxe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/wooden_pickaxe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/diamond_axe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/iron_axe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/golden_axe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/netherite_axe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/stone_axe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/wooden_axe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/diamond_shovel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/iron_shovel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/golden_shovel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/netherite_shovel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/stone_shovel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/wooden_shovel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/diamond_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/iron_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/golden_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/netherite_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/stone_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/wooden_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/stick": { parent: "minecraft:item/handheld" },
+  "minecraft:item/blaze_rod": { parent: "minecraft:item/handheld" },
+  "minecraft:item/bone": { parent: "minecraft:item/handheld" },
+  "minecraft:item/shears": { parent: "minecraft:item/handheld" },
+  "minecraft:item/flint_and_steel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/fishing_rod": { parent: "minecraft:item/handheld_rod" },
+  "minecraft:item/bow": { parent: "minecraft:item/generated" },
+  "minecraft:item/crossbow": { parent: "minecraft:item/generated" },
 };
 
 export function lookupBuiltinModel(id: string): JavaModel | undefined {

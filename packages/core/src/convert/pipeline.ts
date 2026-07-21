@@ -114,6 +114,7 @@ export async function convertPack(
     usedBedrockIdentifiers: new Set(),
     textureCache: new Map(),
     displayEntityMappings: [],
+    inferredHostItems: new Map(),
   };
   ctx.configZipProvided = opts.configZipProvided === true;
 

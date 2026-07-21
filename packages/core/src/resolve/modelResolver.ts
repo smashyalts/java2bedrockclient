@@ -3,6 +3,7 @@ import {
   isBuiltinEntityParent,
   isGeneratedParent,
   isHandheldParent,
+  isVanillaItemParent,
   type JavaDisplayContext,
   type JavaDisplayTransform,
   type JavaElement,
@@ -96,6 +97,7 @@ export function resolveModel(pack: JavaPack, id: string): ResolvedModel | undefi
     if (isGeneratedParent(terminalParent)) kind = "sprite";
     else if (isHandheldParent(terminalParent)) kind = "sprite_handheld";
     else if (isBuiltinEntityParent(terminalParent)) kind = "builtin_entity";
+    else if (isVanillaItemParent(terminalParent)) kind = "sprite";
     else kind = "unknown"; // vanilla block parent etc. — resolved against builtin library later
   } else if (Object.keys(textures).length > 0) {
     // Model with textures but no elements and no unknown parent — treat as sprite.
@@ -126,6 +128,54 @@ function resolveTextureRefs(textures: Record<string, string>): void {
     const resolved = resolveTextureRef(textures, textures[key]!);
     if (resolved !== undefined) textures[key] = resolved;
   }
+}
+
+/**
+ * Infer a vanilla host item from a custom model's parent chain. When a custom
+ * item model parents to a specific vanilla item model (e.g.
+ * `minecraft:item/diamond_sword`) to inherit its display transforms, the host
+ * item is almost certainly that vanilla item. Returns `minecraft:<name>` or
+ * undefined when no specific vanilla item ancestor is found.
+ *
+ * The model id itself is checked first (handles `special`-type `base` refs and
+ * direct vanilla model references whose file isn't in the pack), then the
+ * terminal parent (deepest ancestor not in the pack), then ancestors loaded
+ * from the pack (deepest first). Generic parents (`item/generated`,
+ * `item/handheld`, `builtin/entity`, …) are excluded — they don't identify a
+ * specific vanilla item.
+ */
+export function inferHostItemFromModel(
+  pack: JavaPack,
+  modelId: string,
+  cache?: Map<string, string | undefined>,
+): string | undefined {
+  if (cache?.has(modelId)) return cache.get(modelId);
+  const inferred = inferHostItemImpl(pack, modelId);
+  cache?.set(modelId, inferred);
+  return inferred;
+}
+
+function inferHostItemImpl(pack: JavaPack, modelId: string): string | undefined {
+  const direct = hostItemFromModelId(modelId);
+  if (direct !== undefined) return direct;
+  const resolved = resolveModel(pack, modelId);
+  if (resolved === undefined) return undefined;
+  const candidates = [
+    resolved.terminalParent,
+    ...resolved.chain.slice(1).reverse(),
+  ].filter((id): id is string => id !== undefined);
+  for (const candidate of candidates) {
+    const host = hostItemFromModelId(candidate);
+    if (host !== undefined) return host;
+  }
+  return undefined;
+}
+
+/** `minecraft:item/<name>` → `minecraft:<name>`, excluding generic parents. */
+function hostItemFromModelId(id: string): string | undefined {
+  if (!isVanillaItemParent(id)) return undefined;
+  const loc = parseResourceLocation(id);
+  return `minecraft:${loc.path.slice("item/".length)}`;
 }
 
 /** Sprite layers in order (layer0, layer1, …) as resource locations. */

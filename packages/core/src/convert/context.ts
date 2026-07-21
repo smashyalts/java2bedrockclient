@@ -195,6 +195,13 @@ export interface ConversionContext {
      */
     rotation?: [number, number, number];
   }[];
+  /**
+   * Cache for {@link inferHostItemFromModel} — maps a model resource location
+   * to the vanilla host item inferred from its parent chain (or undefined when
+   * no specific vanilla item ancestor was found). Shared across stages so the
+   * parent chain is walked at most once per model id.
+   */
+  inferredHostItems: Map<string, string | undefined>;
 }
 
 export interface PendingGeometry {

@@ -230,4 +230,53 @@ describe("2D custom items", () => {
     expect(out.has("textures/geyser_custom/minecraft_item_potion.png")).toBe(true);
     expect(result.report.summary.error).toBe(0);
   });
+
+  it("infers host item from model parent chain for custom-namespace modern items", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/custom/items/ruby_sword.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "custom:item/ruby_sword" },
+      }),
+      "assets/custom/models/item/ruby_sword.json": JSON.stringify({
+        parent: "minecraft:item/diamond_sword",
+        textures: { layer0: "custom:item/ruby_sword" },
+      }),
+      "assets/custom/textures/item/ruby_sword.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Inferred" });
+    const mappings = JSON.parse(result.geyserMappings!);
+    // Host item inferred from parent (minecraft:item/diamond_sword), not fallback paper.
+    const defs = mappings.items["minecraft:diamond_sword"];
+    expect(defs).toBeDefined();
+    expect(defs).toHaveLength(1);
+    expect(defs[0]).toMatchObject({ type: "definition", model: "custom:ruby_sword" });
+    // Must NOT appear under the fallback base item.
+    expect(mappings.items["minecraft:paper"]).toBeUndefined();
+    // No config-nudge since no fallback hits.
+    const nudge = result.report.entries.find(
+      (e) => e.status === "approximated" && e.detail?.includes("modern item-model assets"),
+    );
+    expect(nudge).toBeUndefined();
+  });
+
+  it("falls back to modernBaseItem when model parents to a generic vanilla parent", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/custom/items/mystery_item.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "custom:item/mystery_item" },
+      }),
+      "assets/custom/models/item/mystery_item.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/mystery_item" },
+      }),
+      "assets/custom/textures/item/mystery_item.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Fallback" });
+    const mappings = JSON.parse(result.geyserMappings!);
+    // Generic parent (item/generated) → no inference → fallback.
+    expect(mappings.items["minecraft:diamond_sword"]).toBeUndefined();
+    expect(mappings.items["minecraft:paper"]).toBeDefined();
+  });
 });
