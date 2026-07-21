@@ -279,4 +279,29 @@ describe("2D custom items", () => {
     expect(mappings.items["minecraft:diamond_sword"]).toBeUndefined();
     expect(mappings.items["minecraft:paper"]).toBeDefined();
   });
+
+  it("infers host item for non-handheld vanilla items not in BUILTIN_MODELS", async () => {
+    // minecraft:item/apple is not in BUILTIN_MODELS — the resolver synthesizes
+    // a generated-parent fallback so the chain walks through it and inference
+    // finds minecraft:apple as the host item.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/custom/items/golden_apple_custom.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "custom:item/golden_apple_custom" },
+      }),
+      "assets/custom/models/item/golden_apple_custom.json": JSON.stringify({
+        parent: "minecraft:item/apple",
+        textures: { layer0: "custom:item/golden_apple_custom" },
+      }),
+      "assets/custom/textures/item/golden_apple_custom.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Apple" });
+    const mappings = JSON.parse(result.geyserMappings!);
+    const defs = mappings.items["minecraft:apple"];
+    expect(defs).toBeDefined();
+    expect(defs).toHaveLength(1);
+    expect(defs[0]).toMatchObject({ type: "definition", model: "custom:golden_apple_custom" });
+    expect(mappings.items["minecraft:paper"]).toBeUndefined();
+  });
 });

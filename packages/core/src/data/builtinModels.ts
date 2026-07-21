@@ -118,9 +118,15 @@ export const BUILTIN_MODELS: Record<string, JavaModel> = {
   // --- Vanilla item model parents ---
   // Packs reference these without shipping them. Only the `parent` field is
   // needed — the resolver follows the chain to the generic terminal parent
-  // (generated / handheld / handheld_rod) for kind classification, and
-  // inferHostItemFromModel uses the specific vanilla item name in the chain
-  // to infer the host item for custom-namespace modern items.
+  // (generated / handheld / handheld_rod / handheld_mace) for kind
+  // classification, and inferHostItemFromModel uses the specific vanilla item
+  // name in the chain to infer the host item for custom-namespace modern items.
+  //
+  // Only the handheld family is listed here (these must route to
+  // item/handheld* for sprite_handheld classification). All other vanilla
+  // items parent to item/generated, which the resolver synthesizes as a
+  // fallback for any minecraft:item/<name> not found here or in the pack —
+  // so non-handheld items don't need an explicit entry.
   "minecraft:item/diamond_sword": { parent: "minecraft:item/handheld" },
   "minecraft:item/iron_sword": { parent: "minecraft:item/handheld" },
   "minecraft:item/golden_sword": { parent: "minecraft:item/handheld" },
@@ -151,14 +157,16 @@ export const BUILTIN_MODELS: Record<string, JavaModel> = {
   "minecraft:item/netherite_hoe": { parent: "minecraft:item/handheld" },
   "minecraft:item/stone_hoe": { parent: "minecraft:item/handheld" },
   "minecraft:item/wooden_hoe": { parent: "minecraft:item/handheld" },
+  "minecraft:item/mace": { parent: "minecraft:item/handheld_mace" },
   "minecraft:item/stick": { parent: "minecraft:item/handheld" },
   "minecraft:item/blaze_rod": { parent: "minecraft:item/handheld" },
   "minecraft:item/bone": { parent: "minecraft:item/handheld" },
   "minecraft:item/shears": { parent: "minecraft:item/handheld" },
   "minecraft:item/flint_and_steel": { parent: "minecraft:item/handheld" },
+  "minecraft:item/brush": { parent: "minecraft:item/handheld" },
   "minecraft:item/fishing_rod": { parent: "minecraft:item/handheld_rod" },
-  "minecraft:item/bow": { parent: "minecraft:item/generated" },
-  "minecraft:item/crossbow": { parent: "minecraft:item/generated" },
+  "minecraft:item/carrot_on_a_stick": { parent: "minecraft:item/handheld_rod" },
+  "minecraft:item/warped_fungus_on_a_stick": { parent: "minecraft:item/handheld_rod" },
 };
 
 export function lookupBuiltinModel(id: string): JavaModel | undefined {

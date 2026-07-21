@@ -56,6 +56,16 @@ export function resolveModel(pack: JavaPack, id: string): ResolvedModel | undefi
       // (block/cube_all, block/cross, …) resolve against the built-in library.
       if (!isGeneratedParent(current) && !isHandheldParent(current) && !isBuiltinEntityParent(current)) {
         model = lookupBuiltinModel(current);
+        // Fallback: a vanilla item model (minecraft:item/<name>) not in the
+        // builtin library and not in the pack — synthesize a minimal model
+        // that parents to item/generated so the chain walks through it. This
+        // lets inferHostItemFromModel find the host item in the chain and
+        // gives non-handheld items the correct sprite classification.
+        // Handheld-family items (swords, tools, …) are in BUILTIN_MODELS and
+        // route to item/handheld* for sprite_handheld classification.
+        if (model === undefined && isVanillaItemParent(current)) {
+          model = { parent: "minecraft:item/generated" };
+        }
       }
       if (model === undefined) {
         terminalParent = current;
