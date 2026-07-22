@@ -405,6 +405,16 @@ function convertModel(
       ? "entity_nocull"
       : ctx.options.attachableMaterial;
 
+  // Head cosmetic heuristic: a 3D model that defines a `head` display transform
+  // but no hand transforms (thirdperson/firstperson) is a hat / head cosmetic
+  // (HMCCosmetics-style), not a held item. Emit an equippable head component so
+  // Geyser renders it on the player's head instead of in the hand.
+  const headCosmetic =
+    elements.length > 0 &&
+    resolved.display?.head !== undefined &&
+    resolved.display.thirdperson_righthand === undefined &&
+    resolved.display.firstperson_righthand === undefined;
+
   const attachableIds = new Set<string>();
   for (const { variant } of group) {
     const definition = buildDefinition(ctx, variant, {
@@ -413,6 +423,12 @@ function convertModel(
       furnitureYOffset,
       furnitureRotation,
     });
+    if (headCosmetic) {
+      definition.components = {
+        ...definition.components,
+        "minecraft:equippable": { slot: "head" },
+      };
+    }
     ctx.definitionTextures.set(definition, [...textureIds]);
     const identifier = definition.bedrock_identifier!;
     if (attachableIds.has(identifier)) continue;

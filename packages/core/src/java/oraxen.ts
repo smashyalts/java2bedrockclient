@@ -209,6 +209,16 @@ function extractModelAliases(item: unknown): string[] {
     const itemModel = (components as Record<string, unknown>)["item_model"];
     if (typeof itemModel === "string") aliases.push(stripNamespace(itemModel));
   }
+  // Custom plugins (e.g. oxywire): top-level `item-model` / `item_model`, whose
+  // path can be nested (oxywire:cosmetics/hats/farmer_hat). Register both the
+  // full path (matches the modern item-model lookup) and the last segment
+  // (matches the model's last-segment lookup).
+  const topModel = obj["item-model"] ?? obj["item_model"];
+  if (typeof topModel === "string") {
+    aliases.push(stripNamespace(topModel));
+    const last = topModel.split("/").pop();
+    if (last !== undefined && last !== topModel) aliases.push(stripNamespace(last));
+  }
   const pack = obj["Pack"];
   if (pack !== null && typeof pack === "object") {
     const model = (pack as Record<string, unknown>)["model"];
@@ -256,6 +266,12 @@ function extractColor(item: unknown): number | undefined {
     const [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
     if (r <= 255 && g <= 255 && b <= 255) return (r << 16) | (g << 8) | b;
   }
+  // Packed decimal integer (custom plugins like oxywire: color: "10568504").
+  // Only 7+ digits — a 6-digit value is ambiguous with bare hex, handled above.
+  if (/^\d{7,}$/.test(text)) {
+    const n = Number.parseInt(text, 10);
+    if (Number.isFinite(n)) return n & 0xffffff;
+  }
   return undefined;
 }
 
@@ -299,7 +315,10 @@ function extractEquippable(item: unknown): { asset: string; slot: string } | und
 function extractDisplayName(item: unknown): string | undefined {
   if (item === null || typeof item !== "object") return undefined;
   const obj = item as Record<string, unknown>;
-  const raw = obj["displayname"] ?? obj["customname"] ?? obj["display_name"] ?? obj["itemname"];
+  // Oraxen displayname / Nexo customname / ItemsAdder display_name / itemname,
+  // plus plain `name` (custom plugins like oxywire).
+  const raw =
+    obj["displayname"] ?? obj["customname"] ?? obj["display_name"] ?? obj["itemname"] ?? obj["name"];
   if (typeof raw !== "string") return undefined;
   const stripped = raw
     .replace(/[§&][0-9a-fk-orx]/gi, "") // legacy colour codes

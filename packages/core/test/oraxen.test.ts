@@ -400,4 +400,73 @@ items:
     expect(mappings.items["minecraft:diamond_sword"]).toHaveLength(1);
     expect(mappings.items["minecraft:paper"]).toBeUndefined();
   });
+
+  it("parses custom-plugin (oxywire) configs: material, nested item-model, name, decimal color", () => {
+    const YML = `
+FarmerHat:
+  material: SLIME_BALL
+  name: "<c:#dd9b00>Farmer Hat"
+  item-model: "oxywire:cosmetics/hats/farmer_hat"
+  color: "10568504"
+BegrimedItem:
+  material: RABBIT_FOOT
+  name: "<dark_gray><b>Begrimed Item"
+  item-model: "oxywire:item/begrimed_item"
+  stackable: false
+`;
+    const hints = parseOraxenConfigZip(fixtureZip({ "items/oxy.yml": YML }));
+    // Host item registered under full item-model path AND its last segment.
+    expect(hints.baseItems["cosmetics/hats/farmer_hat"]).toBe("minecraft:slime_ball");
+    expect(hints.baseItems["farmer_hat"]).toBe("minecraft:slime_ball");
+    expect(hints.baseItems["item/begrimed_item"]).toBe("minecraft:rabbit_foot");
+    // `name` display key + MiniMessage tags stripped.
+    expect(hints.displayNames["cosmetics/hats/farmer_hat"]).toBe("Farmer Hat");
+    expect(hints.displayNames["item/begrimed_item"]).toBe("Begrimed Item");
+    // Packed decimal colour.
+    expect(hints.colors["farmer_hat"]).toBe(10568504 & 0xffffff);
+  });
+
+  it("emits equippable head for a 3D model with a head display transform (hat cosmetic)", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/oxywire/items/hat.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "oxywire:item/hat" },
+      }),
+      "assets/oxywire/models/item/hat.json": JSON.stringify({
+        textures: { "0": "oxywire:item/hat" },
+        elements: [{ from: [0, 0, 0], to: [16, 4, 16], faces: { up: { texture: "#0" } } }],
+        display: { gui: {}, head: {} },
+      }),
+      "assets/oxywire/textures/item/hat.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Hat",
+      baseItemHints: { hat: "minecraft:slime_ball" },
+    });
+    const mappings = JSON.parse(result.geyserMappings!);
+    const def = mappings.items["minecraft:slime_ball"].find((e: any) => /hat/.test(e.model));
+    expect(def.components["minecraft:equippable"].slot).toBe("head");
+  });
+
+  it("does NOT mark a held 3D item (hand display transforms) as head-equippable", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/oxywire/items/blade.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "oxywire:item/blade" },
+      }),
+      "assets/oxywire/models/item/blade.json": JSON.stringify({
+        textures: { "0": "oxywire:item/blade" },
+        elements: [{ from: [0, 0, 0], to: [16, 4, 16], faces: { up: { texture: "#0" } } }],
+        display: { gui: {}, head: {}, thirdperson_righthand: {}, firstperson_righthand: {} },
+      }),
+      "assets/oxywire/textures/item/blade.png": png(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Blade",
+      baseItemHints: { blade: "minecraft:slime_ball" },
+    });
+    const mappings = JSON.parse(result.geyserMappings!);
+    const def = mappings.items["minecraft:slime_ball"].find((e: any) => /blade/.test(e.model));
+    expect(def.components?.["minecraft:equippable"]).toBeUndefined();
+  });
 });
