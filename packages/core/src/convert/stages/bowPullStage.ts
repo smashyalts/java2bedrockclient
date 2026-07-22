@@ -7,6 +7,7 @@ import {
   resolveModel,
   resolveTextureRef,
   spriteLayers,
+  inferHostItemFromModel,
   type ResolvedModel,
 } from "../../resolve/modelResolver.js";
 import {
@@ -386,6 +387,10 @@ function resolveBowBaseItem(ctx: ConversionContext, group: BowPullGroup): string
     const hinted = ctx.options.baseItemHints[key];
     if (hinted !== undefined) return hinted;
   }
+  // Model parent chain: a custom bow that parents to minecraft:item/bow
+  // (or a specific vanilla bow model) infers the host from that ancestor.
+  const inferred = inferHostItemFromModel(ctx.java, group.standbyModel, ctx.inferredHostItems);
+  if (inferred !== undefined) return inferred;
   return "minecraft:bow";
 }
 

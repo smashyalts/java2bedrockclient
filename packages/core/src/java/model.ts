@@ -82,3 +82,19 @@ export function isHandheldParent(id: string): boolean {
 export function isBuiltinEntityParent(id: string): boolean {
   return id === "minecraft:builtin/entity" || id === "builtin/entity";
 }
+
+/**
+ * True for `minecraft:item/<name>` parents that aren't generic (generated /
+ * handheld / handheld_mace / builtin). These are specific vanilla item models
+ * (e.g. `minecraft:item/diamond_sword`) used as parents by custom items to
+ * inherit display transforms. The resolver classifies them as sprites so the
+ * variant is converted instead of skipped as "unknown".
+ */
+export function isVanillaItemParent(id: string): boolean {
+  const colon = id.indexOf(":");
+  const ns = colon === -1 ? "minecraft" : id.slice(0, colon);
+  if (ns !== "minecraft") return false;
+  const path = colon === -1 ? id : id.slice(colon + 1);
+  if (!path.startsWith("item/")) return false;
+  return !isGeneratedParent(id) && !isHandheldParent(id) && !isBuiltinEntityParent(id);
+}

@@ -5,7 +5,7 @@ import {
   extractModernVariants,
   type ItemVariant,
 } from "../../java/itemVariants.js";
-import { resolveModel, spriteLayers, type ResolvedModel } from "../../resolve/modelResolver.js";
+import { resolveModel, spriteLayers, inferHostItemFromModel, type ResolvedModel } from "../../resolve/modelResolver.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { alphaBleed, compositeLayers, decodeCached, encodePng, firstFrame, tint, type RgbaImage } from "../../image/png.js";
 
@@ -314,7 +314,7 @@ function findColorHint(ctx: ConversionContext, variant: ItemVariant): number | u
   return keys.map((k) => ctx.options.colorHints[k]).find((v) => v !== undefined);
 }
 
-/** Host item: pack-declared → config hints → configurable fallback. */
+/** Host item: pack-declared → config hints → model parent chain → configurable fallback. */
 function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
   if (variant.baseItem !== undefined) return variant.baseItem;
   // Base-item hints (parsed from Oraxen/Nexo server configs) beat the
@@ -328,6 +328,19 @@ function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
   if (hinted !== undefined) {
     ctx.report.converted("items-hints", `${variant.origin} → ${variant.model}`, [`mapped under ${hinted}`]);
     return hinted;
+  }
+  // Model parent chain: if the custom model parents to a specific vanilla
+  // item model (e.g. minecraft:item/diamond_sword) to inherit its display
+  // transforms, infer the host item from that ancestor. Helps packs not made
+  // with Oraxen/Nexo/ItemsAdder, which don't ship a plugin config zip.
+  const inferred = inferHostItemFromModel(ctx.java, variant.model, ctx.inferredHostItems);
+  if (inferred !== undefined) {
+    ctx.report.converted(
+      "items-hints",
+      `${variant.origin} → ${variant.model}`,
+      [`host item inferred from model parent chain: ${inferred}`],
+    );
+    return inferred;
   }
   ctx.report.approximated(
     "items",
