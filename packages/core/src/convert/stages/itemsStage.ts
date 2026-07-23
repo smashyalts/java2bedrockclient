@@ -8,6 +8,11 @@ import {
 import { resolveModel, spriteLayers, inferHostItemFromModel, type ResolvedModel } from "../../resolve/modelResolver.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { alphaBleed, compositeLayers, decodeCached, encodePng, firstFrame, tint, type RgbaImage } from "../../image/png.js";
+import { buildGeometry } from "../../bedrock/geometry.js";
+import { buildDisplayAnimations } from "../../bedrock/animations.js";
+import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
+import { parseLenientJson } from "../../java/json.js";
+import type { JavaElement } from "../../java/model.js";
 
 /** Sanitize a resource location into a safe identifier chunk. */
 export function safeName(id: string): string {
@@ -142,6 +147,14 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
   const iconKey = colorHint !== undefined ? `${name}_${colorHint.toString(16)}` : name;
   const outPath = `textures/geyser_custom/${iconKey}.png`;
 
+  // Opt-in: a single-layer animated sprite can play its animation while HELD via
+  // a flat attachable. The icon itself stays on the first frame regardless —
+  // Bedrock has no flipbook for custom item icons.
+  const heldAnimation =
+    ctx.options.animate2dHeldItems && layers.length === 1
+      ? readSpriteAnimation(ctx, layers[0]!)
+      : undefined;
+
   if (!ctx.itemTextures.has(iconKey)) {
     const images = [];
     for (const layerId of layers) {
@@ -182,7 +195,105 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
     displayHandheld: resolved.kind === "sprite_handheld",
   });
   ctx.definitionTextures.set(definition, layers);
-  ctx.report.converted("items", origin, [outPath]);
+  const outputs = [outPath];
+  if (heldAnimation !== undefined) {
+    const note = emitHeldSpriteAnimation(ctx, definition.bedrock_identifier!, name, heldAnimation, resolved, encodeJobs);
+    if (note !== undefined) outputs.push(note);
+  }
+  ctx.report.converted("items", origin, outputs);
+}
+
+/** Frame strip + tick timing of an animated sprite layer, if it is one. */
+function readSpriteAnimation(
+  ctx: ConversionContext,
+  layerId: string,
+): { strip: RgbaImage; frametime: number } | undefined {
+  const texPath = ctx.java.assetPath("textures", layerId, ".png");
+  const meta = ctx.java.readText(texPath + ".mcmeta");
+  if (meta === undefined) return undefined;
+  const strip = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
+  // A flipbook strip is a vertical column of square frames.
+  if (strip === undefined || strip.height <= strip.width) return undefined;
+  const parsed = parseLenientJson<{ animation?: { frametime?: number } }>(meta);
+  return { strip, frametime: Math.max(1, parsed?.animation?.frametime ?? 1) };
+}
+
+/**
+ * Emit a flat-card attachable whose render controller cycles the sprite's frames,
+ * so an animated 2D item animates while held. Bedrock cannot animate a custom
+ * item icon, so the inventory/tooltip image is unaffected (first frame). Note
+ * this replaces Bedrock's native extruded held sprite with a flat card — which
+ * is why it is opt-in.
+ */
+function emitHeldSpriteAnimation(
+  ctx: ConversionContext,
+  identifier: string,
+  name: string,
+  anim: { strip: RgbaImage; frametime: number },
+  resolved: ResolvedModel,
+  encodeJobs: EncodeJob[],
+): string | undefined {
+  const size = anim.strip.width;
+  const count = Math.floor(anim.strip.height / size);
+  if (count < 2) return undefined;
+
+  // One texture per frame; frame 0 is the attachable's `default`.
+  const shortnames = ["default"];
+  const extraTextures: Record<string, string> = {};
+  const frameBase = `textures/geyser_custom/anim/${name}`;
+  for (let i = 0; i < count; i++) {
+    const frame: RgbaImage = {
+      width: size,
+      height: size,
+      data: anim.strip.data.slice(i * size * size * 4, (i + 1) * size * size * 4),
+    };
+    alphaBleed(frame);
+    encodeJobs.push({ path: `${frameBase}_${i}.png`, image: frame });
+    if (i > 0) {
+      extraTextures[`frame${i}`] = `${frameBase}_${i}`;
+      shortnames.push(`frame${i}`);
+    }
+  }
+
+  // Flat card: one thin element carrying the sprite on both faces, run through
+  // the normal geometry builder so it gets the standard item bone chain.
+  const element = {
+    from: [0, 0, 7.5],
+    to: [16, 16, 8.5],
+    faces: { north: { texture: "#0" }, south: { texture: "#0" } },
+  } as unknown as JavaElement;
+  const geometryId = `geometry.geyser_custom.${name}_held`;
+  const geo = buildGeometry(
+    geometryId,
+    [element],
+    () => ({ x: 0, y: 0, width: size, height: size }),
+    { width: size, height: size },
+  );
+  ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}_held.geo.json`, geo.geometry);
+
+  const anims = buildDisplayAnimations(`${name}_held`, resolved.display ?? {});
+  ctx.bedrock.writeJson(`animations/geyser_custom/${name}_held.animation.json`, anims.file);
+
+  const renderController = `controller.render.gc_${name}_held`;
+  const fps = 20 / anim.frametime;
+  ctx.bedrock.writeJson(
+    `render_controllers/geyser_custom/${name}_held.render_controllers.json`,
+    buildFlipbookRenderController({ id: renderController, frameShortnames: shortnames, fps }),
+  );
+
+  ctx.bedrock.writeJson(
+    `attachables/geyser_custom/${safeName(identifier.split(":")[1] ?? identifier)}.json`,
+    buildItemAttachable({
+      identifier,
+      material: ctx.options.attachableMaterial,
+      texture: `${frameBase}_0`,
+      geometry: geometryId,
+      animations: anims.refs,
+      extraTextures,
+      renderController,
+    }),
+  );
+  return `held animation: ${count} frames @ ${fps.toFixed(1)} fps (icon stays first-frame)`;
 }
 
 /** Registers a Geyser v2 mapping entry for the variant. */

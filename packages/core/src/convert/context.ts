@@ -9,6 +9,15 @@ export interface ConvertOptions {
   packName: string;
   /** Material used for generated attachables. */
   attachableMaterial: string;
+  /**
+   * Opt-in: give animated 2D sprite items a flat attachable so their animation
+   * plays while HELD. Bedrock cannot animate a custom item's icon, so the
+   * inventory and tooltip image stays on the first frame either way. The
+   * trade-off is that an attachable replaces Bedrock's native held-sprite
+   * rendering (the extruded 3D sprite) with a flat card, so this is off by
+   * default and only worth enabling for packs where the animation matters.
+   */
+  animate2dHeldItems: boolean;
   /** Namespaces to convert; empty = all. */
   namespaces: string[];
   /**
@@ -103,6 +112,7 @@ export interface PngRecompressor {
 
 export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   attachableMaterial: "entity_alphatest_one_sided",
+  animate2dHeldItems: false,
   namespaces: [],
   modernBaseItem: "minecraft:paper",
   baseItemHints: {},

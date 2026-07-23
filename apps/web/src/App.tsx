@@ -19,6 +19,7 @@ export function App() {
   const [maxAnimationFrames, setMaxAnimationFrames] = useState(0);
   const [optimizePack, setOptimizePack] = useState(true);
   const [maxCompression, setMaxCompression] = useState(false);
+  const [animate2dHeldItems, setAnimate2dHeldItems] = useState(false);
   const [oxipngLevel, setOxipngLevel] = useState(4);
   const [showOptions, setShowOptions] = useState(false);
   const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
@@ -43,7 +44,7 @@ export function App() {
         const api = getWorker();
         const result = await api.convert(
           transfer(bytes, [bytes.buffer]),
-          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression },
+          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, animate2dHeldItems },
           proxy((stage: string, done: number, total: number) => {
             setPhase({ kind: "converting", stage, done, total, fileName: file.name });
           }),
@@ -60,7 +61,7 @@ export function App() {
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
-    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, oxipngLevel, configZips],
+    [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, animate2dHeldItems, oxipngLevel, configZips],
   );
 
   return (
@@ -125,6 +126,16 @@ export function App() {
               />
               Lossless pack optimization — minify JSON, merge duplicate + drop unused textures (never
               changes what players see)
+            </label>
+            <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={animate2dHeldItems}
+                onChange={(e) => setAnimate2dHeldItems(e.target.checked)}
+              />
+              Animate held 2D items — plays an animated sprite's frames while the item is held.
+              Bedrock can't animate item icons, so the inventory picture stays on the first frame,
+              and held items render as a flat card instead of Bedrock's extruded sprite.
             </label>
             {optimizePack && (
               <label style={{ ...labelStyle, display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>

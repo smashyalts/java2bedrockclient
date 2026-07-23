@@ -78,6 +78,7 @@ export async function convertPack(
   const opts: ConvertOptions = {
     packName: options?.packName ?? "Converted Pack",
     attachableMaterial: options?.attachableMaterial ?? DEFAULT_OPTIONS.attachableMaterial,
+    animate2dHeldItems: options?.animate2dHeldItems ?? DEFAULT_OPTIONS.animate2dHeldItems,
     namespaces: options?.namespaces ?? DEFAULT_OPTIONS.namespaces,
     modernBaseItem: options?.modernBaseItem ?? DEFAULT_OPTIONS.modernBaseItem,
     baseItemHints: options?.baseItemHints ?? DEFAULT_OPTIONS.baseItemHints,

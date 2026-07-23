@@ -17,6 +17,37 @@ function fixtureZip(files: Record<string, Uint8Array | string>): Uint8Array {
   return zipSync(tree);
 }
 
+/** Vertical flipbook strip of `frames` square frames, each a distinct colour. */
+function stripPng(size: number, frames: number): Uint8Array {
+  const data = new Uint8Array(size * size * frames * 4);
+  for (let f = 0; f < frames; f++) {
+    for (let i = 0; i < size * size; i++) {
+      const o = (f * size * size + i) * 4;
+      data[o] = 40 + f * 70;
+      data[o + 1] = 10;
+      data[o + 2] = 200 - f * 60;
+      data[o + 3] = 255;
+    }
+  }
+  return new Uint8Array(encode({ width: size, height: size * frames, data, channels: 4 }));
+}
+
+/** A 16x48 vertical flipbook strip (3 frames) wired up as a custom sprite item. */
+function animatedSpriteZip(): Uint8Array {
+  return fixtureZip({
+    "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+    "assets/custom/items/glow.json": JSON.stringify({
+      model: { type: "minecraft:model", model: "custom:item/glow" },
+    }),
+    "assets/custom/models/item/glow.json": JSON.stringify({
+      parent: "minecraft:item/generated",
+      textures: { layer0: "custom:item/glow" },
+    }),
+    "assets/custom/textures/item/glow.png": stripPng(16, 3),
+    "assets/custom/textures/item/glow.png.mcmeta": JSON.stringify({ animation: { frametime: 4 } }),
+  });
+}
+
 describe("2D custom items", () => {
   it("bakes config dye colours into tinted-base-item icons", async () => {
     const zip = fixtureZip({
@@ -303,5 +334,33 @@ describe("2D custom items", () => {
     expect(defs).toHaveLength(1);
     expect(defs[0]).toMatchObject({ type: "definition", model: "custom:golden_apple_custom" });
     expect(mappings.items["minecraft:paper"]).toBeUndefined();
+  });
+
+  it("leaves animated 2D sprites unanimated by default (icon-only, first frame)", async () => {
+    const zip = animatedSpriteZip();
+    const result = await convertPack(zip, { packName: "AnimOff" });
+    const out = readZip(result.mcpack);
+    expect(out.list().some((p) => p.startsWith("attachables/"))).toBe(false);
+    expect(out.list().some((p) => p.includes("/anim/"))).toBe(false);
+  });
+
+  it("animates the held form of a 2D sprite when animate2dHeldItems is on", async () => {
+    const zip = animatedSpriteZip();
+    const result = await convertPack(zip, { packName: "AnimOn", animate2dHeldItems: true });
+    const out = readZip(result.mcpack);
+    const frames = out.list().filter((p) => p.startsWith("textures/geyser_custom/anim/"));
+    // 3-frame strip -> one texture per frame.
+    expect(frames).toHaveLength(3);
+    // Attachable + flat geometry + frame-cycling render controller.
+    const attachable = out.list().find((p) => p.startsWith("attachables/"));
+    expect(attachable).toBeDefined();
+    const att = JSON.parse(out.readText(attachable!)!)["minecraft:attachable"].description;
+    expect(Object.keys(att.textures)).toEqual(expect.arrayContaining(["default", "frame1", "frame2"]));
+    expect(att.render_controllers[0]).toMatch(/^controller\.render\.gc_/);
+    expect(out.list().some((p) => p.endsWith("_held.geo.json"))).toBe(true);
+    // The icon mapping still resolves (Bedrock cannot animate the icon itself).
+    const itemTexture = JSON.parse(out.readText("textures/item_texture.json")!);
+    const key = Object.keys(itemTexture.texture_data)[0]!;
+    expect(itemTexture.texture_data[key].textures).toBeTruthy();
   });
 });
