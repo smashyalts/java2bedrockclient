@@ -202,9 +202,10 @@ items:
     expect(result.displayEntityMappings).toContain('item-identifier: "plushie_bear"');
   });
 
-  it("derives a per-item y-offset from a 3D furniture model's height", async () => {
-    // A tall furniture model (e.g. a chair) spanning y 0..24 → vertical centre
-    // 12 → y-offset -0.75, not the flat -0.5 that leaves tall pieces floating.
+  it("seats furniture by its bottom, not its bounding-box centre", async () => {
+    // A model whose bottom sits 8 units above the block origin. Bottom-anchored
+    // seating gives -0.5 - 8/16 = -1.0. A centre-based offset would instead use
+    // the mid-point (16) and sink the piece by half its excess height.
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
       "assets/nexo/items/tall_chair.json": JSON.stringify({
@@ -213,9 +214,8 @@ items:
       "assets/nexo/models/item/tall_chair.json": JSON.stringify({
         textures: { "1": "nexo:item/tall_chair" },
         elements: [
-          { from: [4, 0, 4], to: [12, 24, 12], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
+          { from: [4, 8, 4], to: [12, 24, 12], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
         ],
-        display: { fixed: { scale: [2, 2, 2] } },
       }),
       "assets/nexo/textures/item/tall_chair.png": png(),
     });
@@ -225,8 +225,8 @@ items:
       furnitureItems: ["tall_chair"],
     });
     const yml = result.displayEntityMappings!;
-    expect(yml).toContain("y-offset: -0.750");
-    // Not the flat default that leaves tall furniture floating.
+    expect(yml).toContain("y-offset: -1.000");
+    // Not the flat default — the raised bottom must move the offset.
     expect(yml).not.toContain("y-offset: -0.500");
     // Furniture on leather_horse_armor is hidden by the extension default →
     // a corrected config.yml is emitted with it removed from hide-custom-types.
@@ -250,7 +250,7 @@ items:
       "assets/nexo/models/item/lying_chair.json": JSON.stringify({
         textures: { "1": "nexo:item/lying_chair" },
         elements: [
-          { from: [4, 6, 0], to: [12, 10, 24], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
+          { from: [4, 6, 4], to: [12, 10, 24], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
         ],
         display: { fixed: { rotation: [-90, 0, 0] } },
       }),

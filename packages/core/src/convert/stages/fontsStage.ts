@@ -22,7 +22,17 @@ interface GlyphPlacement {
   sy: number;
   w: number;
   h: number;
+  /** Java bitmap-provider ascent — higher means drawn higher up the line. */
+  ascent: number;
 }
+
+/**
+ * Ascents beyond this are positioning tricks, not glyph metrics: packs push a
+ * glyph far off-screen (e.g. ascent -42069) to hide it. Bedrock cannot offset
+ * that far, so rendering such a glyph normally would make a deliberately hidden
+ * element visible — drop it instead.
+ */
+const MAX_SANE_ASCENT = 64;
 
 /**
  * Converts bitmap font providers into Bedrock glyph page sheets
@@ -40,6 +50,7 @@ export const fontsStage: PipelineStage = {
     // Pass 1: collect all glyphs with their source regions.
     const placements: GlyphPlacement[] = [];
     const taken = new Set<number>(); // page<<8 | index — first definition wins
+    let hiddenGlyphs = 0;
 
     for (const ns of ctx.java.namespaces()) {
       const prefix = `assets/${ns}/font/`;
@@ -59,6 +70,12 @@ export const fontsStage: PipelineStage = {
           const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
           if (image === undefined) {
             ctx.report.skipped("fonts", path, `bitmap font texture ${provider.file} missing`);
+            continue;
+          }
+
+          const ascent = provider.ascent ?? 0;
+          if (Math.abs(ascent) > MAX_SANE_ASCENT) {
+            hiddenGlyphs += provider.chars.reduce((n, row) => n + [...row].length, 0);
             continue;
           }
 
@@ -84,6 +101,7 @@ export const fontsStage: PipelineStage = {
                 sy: row * cellH,
                 w: cellW,
                 h: cellH,
+                ascent,
               });
               glyphs++;
             });
@@ -93,8 +111,16 @@ export const fontsStage: PipelineStage = {
           ctx.report.approximated(
             "fonts",
             path,
-            `${glyphs} glyph(s) placed at native resolution — Java height/ascent metrics and space-provider offsets have no Bedrock equivalent`,
+            `${glyphs} glyph(s) placed at native resolution with the Java ascent baked into the cell — height scaling and space-provider offsets have no Bedrock equivalent`,
           );
+        }
+        if (hiddenGlyphs > 0) {
+          ctx.report.skipped(
+            "fonts",
+            path,
+            `${hiddenGlyphs} glyph(s) hidden in Java by an off-screen ascent (|ascent| > ${MAX_SANE_ASCENT}) — Bedrock cannot offset that far, so they are dropped rather than shown`,
+          );
+          hiddenGlyphs = 0;
         }
       }
     }
@@ -109,12 +135,29 @@ export const fontsStage: PipelineStage = {
     }
 
     for (const [page, glyphs] of byPage) {
-      const cell = Math.max(16, ...glyphs.map((g) => Math.max(g.w, g.h)));
+      // Bake the Java ascent into vertical position. Bedrock has no per-glyph
+      // metric — every glyph would otherwise sit flush to the top of its cell,
+      // so glyphs authored at different heights (rank tags vs inline icons)
+      // lose their relative alignment. Drop each glyph inside its cell by how
+      // far its ascent sits below the page's highest, preserving that offset.
+      const topAscent = Math.max(...glyphs.map((g) => g.ascent));
+      const drop = (g: GlyphPlacement): number => Math.round(topAscent - g.ascent);
+      const cell = Math.max(16, ...glyphs.map((g) => Math.max(g.w, g.h + drop(g))));
       const sheet = createImage(cell * 16, cell * 16);
       for (const g of glyphs) {
+        const dyOff = drop(g);
         const dx = (g.index % 16) * cell;
-        const dy = Math.floor(g.index / 16) * cell;
-        nativeBlit(sheet, g.image, g.sx, g.sy, Math.min(g.w, cell), Math.min(g.h, cell), dx, dy);
+        const dy = Math.floor(g.index / 16) * cell + dyOff;
+        nativeBlit(
+          sheet,
+          g.image,
+          g.sx,
+          g.sy,
+          Math.min(g.w, cell),
+          Math.min(g.h, cell - dyOff),
+          dx,
+          dy,
+        );
       }
       const hex = page.toString(16).toUpperCase().padStart(2, "0");
       ctx.bedrock.write(`font/glyph_${hex}.png`, encodePng(sheet));

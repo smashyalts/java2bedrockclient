@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { zipSync } from "fflate";
 import { encode } from "fast-png";
+import { decodePng } from "../src/image/png.js";
 import { convertPack, readZip } from "../src/index.js";
 
 function png(width = 16, height = 16): Uint8Array {
@@ -79,6 +80,61 @@ describe("aux stages", () => {
     });
     const out = readZip((await convertPack(zip, { packName: "Fonts" })).mcpack);
     expect(out.has("font/glyph_E0.png")).toBe(true);
+  });
+
+  it("bakes the Java ascent into each glyph's vertical position in its cell", async () => {
+    // Two glyphs on the same page with different ascents. The page's highest
+    // ascent (10) sits flush to the top of its cell; the lower one (2) must be
+    // pushed down by the 8-unit difference so their relative alignment holds.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/custom/font/default.json": JSON.stringify({
+        providers: [
+          { type: "bitmap", file: "custom:font/high.png", height: 8, ascent: 10, chars: [""] },
+          { type: "bitmap", file: "custom:font/low.png", height: 8, ascent: 2, chars: [""] },
+        ],
+      }),
+      "assets/custom/textures/font/high.png": png(8, 8),
+      "assets/custom/textures/font/low.png": png(8, 8),
+    });
+    const out = readZip((await convertPack(zip, { packName: "Ascent" })).mcpack);
+    // decodePng normalises to RGBA (the sheet may ship indexed/grayscale).
+    const sheet = decodePng(out.read("font/glyph_E0.png")!);
+    const cell = sheet.width / 16;
+    const firstOpaqueRow = (cellX: number): number => {
+      for (let y = 0; y < cell; y++) {
+        for (let x = cellX; x < cellX + cell; x++) {
+          if (sheet.data[(y * sheet.width + x) * 4 + 3]! > 0) return y;
+        }
+      }
+      return -1;
+    };
+    // Glyph 0 (ascent 10) anchored at the top of its cell; glyph 1 (ascent 2)
+    // dropped by 10 - 2 = 8 rows.
+    expect(firstOpaqueRow(0)).toBe(0);
+    expect(firstOpaqueRow(cell)).toBe(8);
+  });
+
+  it("drops glyphs hidden in Java by an off-screen ascent instead of showing them", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/custom/font/default.json": JSON.stringify({
+        providers: [
+          { type: "bitmap", file: "custom:font/icons.png", height: 8, ascent: 7, chars: [""] },
+          // The "hide it off-screen" trick — Bedrock can't offset this far.
+          { type: "bitmap", file: "custom:font/blank.png", height: -10, ascent: -42069, chars: [""] },
+        ],
+      }),
+      "assets/custom/textures/font/icons.png": png(8, 8),
+      "assets/custom/textures/font/blank.png": png(8, 8),
+    });
+    const result = await convertPack(zip, { packName: "Hidden" });
+    const skipped = result.report.entries.find(
+      (e) => e.stage === "fonts" && e.status === "skipped" && /off-screen ascent/.test(e.detail ?? ""),
+    );
+    expect(skipped).toBeDefined();
+    // The visible glyph still converts.
+    expect(readZip(result.mcpack).has("font/glyph_E0.png")).toBe(true);
   });
 
   it("stitches paintings into kz.png", async () => {

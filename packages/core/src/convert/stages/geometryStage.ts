@@ -601,23 +601,26 @@ function furnitureOffsetFromElements(
   // stayed correct.
   const r = fixed?.rotation ?? [0, 0, 0];
   const rot: [number, number, number] = [r[0]!, -r[1]!, -r[2]!];
-  const pivot = 8; // Minecraft display transforms pivot about the [8,8,8] centre.
+  const pivot = 8; // Extension bones (geyser_x/y/z) rotate about [0,8,0] → java y=8.
   let minY = Infinity;
-  let maxY = -Infinity;
   for (const el of elements) {
     for (const x of [el.from[0], el.to[0]]) {
       for (const y of [el.from[1], el.to[1]]) {
         for (const z of [el.from[2], el.to[2]]) {
           const v: [number, number, number] = [x - pivot, y - pivot, z - pivot];
-          const ty = rotateXYZ(v, rot)[1] + pivot;
-          minY = Math.min(minY, ty);
-          maxY = Math.max(maxY, ty);
+          minY = Math.min(minY, rotateXYZ(v, rot)[1] + pivot);
         }
       }
     }
   }
-  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return -0.5;
-  return -((minY + maxY) / 2 / 16);
+  if (!Number.isFinite(minY)) return -0.5;
+  // Seat by the model's BOTTOM, not its centre. The extension's default -0.5
+  // seats a standard 16-tall model whose bottom sits at y=0, so keeping any
+  // model's bottom on that same floor generalises to -0.5 - minY/16. A
+  // centre-based offset (-(min+max)/2) sinks tall pieces by half their excess
+  // height, which is what left stood-up chairs floating/buried.
+  // Position-only: this moves the stand-in, it never changes the geometry.
+  return -0.5 - minY / 16;
 }
 
 /** Rotate a vector by Euler angles (degrees) in Minecraft's X·Y·Z order. */
