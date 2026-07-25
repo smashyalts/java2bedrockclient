@@ -318,6 +318,56 @@ items:
     expect(yaml).toContain("vanilla-scale-multiplier: 1");
   });
 
+  it("seats NONE-transform furniture by height and reads vanilla-scale from the plugin", async () => {
+    // Nexo furniture with display_transform: NONE gets no runtime reposition, so
+    // it must be seated by y-offset. The model's own display.fixed (scale -2)
+    // must NOT drive vanilla-scale — the plugin's scale 1,1,1 is authoritative.
+    const cfg = fixtureZip({
+      "items/cozy.yml": [
+        "cozy_armchair:",
+        "  material: PAPER",
+        "  Mechanics:",
+        "    furniture:",
+        "      properties:",
+        "        display_transform: NONE",
+        "        scale: 1,1,1",
+        "  Pack:",
+        "    custom_model_data: 20001",
+        "    model: lzfurniture:cozy_armchair",
+      ].join("\n"),
+    });
+    const hints = parseOraxenConfigZip(cfg);
+    expect(hints.furnitureTransforms["cozy_armchair"]).toEqual({ none: true, scale: 1 });
+
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/cozy_armchair.json": JSON.stringify({
+        model: { type: "model", model: "lzfurniture:cozy_armchair" },
+      }),
+      "assets/lzfurniture/models/cozy_armchair.json": JSON.stringify({
+        textures: { "1": "lzfurniture:cozy_armchair" },
+        // display.fixed scale -2 is a red herring the plugin overrides.
+        display: { fixed: { rotation: [-90, -180, 0], scale: [-2, 2, -2] } },
+        elements: [
+          { from: [0, 0, 0], to: [16, 24, 16], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
+        ],
+      }),
+      "assets/lzfurniture/textures/cozy_armchair.png": opaquePng(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Cozy",
+      baseItemHints: hints.baseItems,
+      cmdItemKeys: hints.cmdKeys,
+      furnitureItems: hints.furniture,
+      furnitureTransforms: hints.furnitureTransforms,
+    });
+    const yaml = result.displayEntityMappings!;
+    // scale 1 → vanilla-scale false (not true from the model's -2).
+    expect(yaml).toContain("vanilla-scale: false");
+    // Y 0..24 → centre 12 → -0.75, so it doesn't hang at the item anchor.
+    expect(yaml).toContain("y-offset: -0.750");
+  });
+
   it("maps modern item definitions under hinted base items", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),

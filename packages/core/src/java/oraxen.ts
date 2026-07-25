@@ -49,6 +49,15 @@ export interface OraxenHints {
    * GeyserDisplayEntity extension to show on Bedrock.
    */
   furniture: string[];
+  /**
+   * Per-furniture-key placement hints from the plugin's furniture mechanic:
+   * `none` = the item_display uses NONE (identity) transform, so nothing
+   * repositions it at runtime and it must be seated by y-offset; `scale` = the
+   * furniture's own scale (Nexo `scale: x,y,z`), used to decide `vanilla-scale`.
+   * These come from the plugin config, which overrides the model's own
+   * `display.fixed` (Nexo authors set the transform here, not in the model).
+   */
+  furnitureTransforms: Record<string, { none: boolean; scale: number }>;
   /** yml files parsed / items discovered, for reporting. */
   files: number;
   items: number;
@@ -73,6 +82,7 @@ export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
     cmdKeys: {},
     backpacks: [],
     furniture: [],
+    furnitureTransforms: {},
     files: 0,
     items: 0,
   };
@@ -131,13 +141,20 @@ function parseOne(
       }
       found++;
       const isFurniture = extractIsFurniture(value);
-      if (isFurniture) furnitureSet.add(lowerKey);
+      const furnitureTransform = isFurniture ? extractFurnitureTransform(value) : undefined;
+      if (isFurniture) {
+        furnitureSet.add(lowerKey);
+        if (furnitureTransform !== undefined) hints.furnitureTransforms[lowerKey] = furnitureTransform;
+      }
       // Model-id overrides (Oraxen Components.item_model / Pack.model,
       // ItemsAdder resource.model_path) — register those names too.
       for (const alias of extractModelAliases(value)) {
         hints.baseItems[alias] = base;
         if (displayName !== undefined) hints.displayNames[alias] = displayName;
-        if (isFurniture) furnitureSet.add(alias);
+        if (isFurniture) {
+          furnitureSet.add(alias);
+          if (furnitureTransform !== undefined) hints.furnitureTransforms[alias] = furnitureTransform;
+        }
         if (color !== undefined) hints.colors[alias] = color;
       }
     };
@@ -286,6 +303,47 @@ function extractIsFurniture(item: unknown): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Furniture placement transform from the plugin's furniture mechanic. Reads
+ * `Mechanics.furniture.properties.display_transform` (NONE/FIXED/HEAD/…) and
+ * `scale` (e.g. "1,1,1" or [1,1,1]). NONE means the item_display carries no
+ * transform, so the piece is authored upright in block space and gets no
+ * runtime reposition — the converter must seat it by y-offset. scale drives
+ * whether the extension should apply the entity's vanilla scale.
+ */
+function extractFurnitureTransform(
+  item: unknown,
+): { none: boolean; scale: number } | undefined {
+  if (item === null || typeof item !== "object") return undefined;
+  const obj = item as Record<string, unknown>;
+  for (const sectionKey of ["Mechanics", "mechanics", "behaviours", "behaviors"]) {
+    const section = obj[sectionKey];
+    if (section === null || typeof section !== "object") continue;
+    const furniture = (section as Record<string, unknown>)["furniture"];
+    if (furniture === null || typeof furniture !== "object") continue;
+    const props = (furniture as Record<string, unknown>)["properties"];
+    const p = (props !== null && typeof props === "object" ? props : furniture) as Record<
+      string,
+      unknown
+    >;
+    const dt = p["display_transform"] ?? p["displayTransform"];
+    const none = typeof dt === "string" && dt.trim().toUpperCase() === "NONE";
+    const scale = parseScaleMagnitude(p["scale"]);
+    return { none, scale };
+  }
+  return undefined;
+}
+
+/** Largest absolute component of a `scale` value ("x,y,z", [x,y,z], or number); 1 when absent. */
+function parseScaleMagnitude(scale: unknown): number {
+  let parts: number[] = [];
+  if (typeof scale === "number") parts = [scale];
+  else if (typeof scale === "string") parts = scale.split(",").map((s) => Number.parseFloat(s.trim()));
+  else if (Array.isArray(scale)) parts = scale.map((s) => (typeof s === "number" ? s : Number.parseFloat(String(s))));
+  const finite = parts.filter((n) => Number.isFinite(n)).map((n) => Math.abs(n));
+  return finite.length > 0 ? Math.max(...finite) : 1;
 }
 
 /** Pack.custom_model_data (Oraxen/Nexo) — links cmd-dispatched items to their config key. */

@@ -88,6 +88,7 @@ export async function convertPack(
     colorHints: options?.colorHints ?? DEFAULT_OPTIONS.colorHints,
     backpackItems: options?.backpackItems ?? DEFAULT_OPTIONS.backpackItems,
     furnitureItems: options?.furnitureItems ?? DEFAULT_OPTIONS.furnitureItems,
+    furnitureTransforms: options?.furnitureTransforms ?? DEFAULT_OPTIONS.furnitureTransforms,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
     optimizePack: options?.optimizePack ?? DEFAULT_OPTIONS.optimizePack,
     maxCompression: options?.maxCompression ?? DEFAULT_OPTIONS.maxCompression,
@@ -206,6 +207,7 @@ function buildDisplayEntityYaml(
     identifier: string;
     modelData?: number;
     vanillaScale?: boolean;
+    yOffset?: number;
   }[],
 ): string {
   const lines = [
@@ -221,9 +223,12 @@ function buildDisplayEntityYaml(
     "# production furniture packs convert 1:1, so a chair the server places",
     "# stands upright and sits at the right height without per-item tuning.",
     "#",
-    "# vanilla-scale makes the extension apply the entity's own scale — set for",
-    "# pieces whose Java `display.fixed` scale isn't 1 (they expect it). y-offset",
-    "# stays 0 here; the global default (-0.5) lives in config.yml.",
+    "# vanilla-scale makes the extension apply the entity's own scale — set from",
+    "# the plugin's furniture scale. y-offset is 0 for furniture the extension",
+    "# repositions live; NONE-transform furniture (no runtime transform) gets a",
+    "# negative y-offset so it's seated instead of hanging at the item anchor.",
+    "# The global default y-offset (-0.5) lives in config.yml. If a piece still",
+    "# floats, lower its y-offset here; if it sinks, raise it.",
     "mappings:",
   ];
   for (const e of entries) {
@@ -237,7 +242,7 @@ function buildDisplayEntityYaml(
     }
     const vanilla = e.vanillaScale ?? false;
     lines.push("    displayentityoptions:");
-    lines.push("      y-offset: 0.0");
+    lines.push(`      y-offset: ${(e.yOffset ?? 0).toFixed(3)}`);
     lines.push(`      vanilla-scale: ${vanilla}`);
     lines.push(`      vanilla-scale-multiplier: ${vanilla ? 1 : 0}`);
     lines.push("      hand: false");

@@ -51,6 +51,13 @@ export interface ConvertOptions {
    */
   furnitureItems: string[];
   /**
+   * Per-furniture-key placement hints from the plugin config ({@link
+   * OraxenHints.furnitureTransforms}). `none` furniture (item_display transform
+   * NONE) gets no runtime reposition, so the converter seats it by y-offset;
+   * `scale` decides whether the extension applies the entity's vanilla scale.
+   */
+  furnitureTransforms: Record<string, { none: boolean; scale: number }>;
+  /**
    * Max flipbook timeline frames per animated item; 0 = unlimited (full
    * animation, default). Lower values shrink the pack for slow connections.
    */
@@ -122,6 +129,7 @@ export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
   colorHints: {},
   backpackItems: [],
   furnitureItems: [],
+  furnitureTransforms: {},
   maxAnimationFrames: 0,
   optimizePack: true,
   maxCompression: false,
@@ -191,12 +199,18 @@ export interface ConversionContext {
     modelData?: number;
     /**
      * Whether the GeyserDisplayEntity extension should apply the server
-     * ItemDisplay entity's own scale (its `vanilla-scale` option). Set when the
-     * model's `display.fixed` scale isn't 1 — the piece was authored expecting
-     * that runtime scale. Placement rotation and height are handled entirely by
-     * the extension reading the entity transform; the pack bakes nothing.
+     * ItemDisplay entity's own scale (its `vanilla-scale` option). Set from the
+     * plugin's furniture scale. Placement rotation is handled by the extension
+     * reading the entity transform; the pack bakes nothing.
      */
     vanillaScale?: boolean;
+    /**
+     * Per-item y-offset. 0 for furniture the extension repositions live (real
+     * display transform); a negative value seats `display_transform: NONE`
+     * furniture, which gets no runtime transform and would otherwise hang at the
+     * stand-in's item anchor.
+     */
+    yOffset?: number;
   }[];
   /**
    * Cache for {@link inferHostItemFromModel} — maps a model resource location

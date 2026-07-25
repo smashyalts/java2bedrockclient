@@ -35,6 +35,7 @@ const api: WorkerApi = {
         colorHints: hints.colors,
         backpackItems: hints.backpacks,
         furnitureItems: hints.furniture,
+        furnitureTransforms: hints.furnitureTransforms,
         configZipProvided: true,
       };
       hintCount = hints.items;

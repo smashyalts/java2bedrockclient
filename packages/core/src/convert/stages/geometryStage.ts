@@ -377,17 +377,25 @@ function convertModel(
   // 8. Register a mapping entry per variant, and an attachable per unique
   // bedrock identifier (definitions may get item-model based identifiers, so
   // one shared model can back several bedrock items).
-  // Furniture (GeyserDisplayEntity) placement is handled entirely at runtime:
-  // the extension reads the server ItemDisplay entity's transform (rotation and
-  // scale) and applies it. Production furniture packs that convert 1:1 bake
-  // NOTHING into the pack — no rotation, no y-offset, no scale, no material
-  // swap — and rely on that runtime transform. We match them: ship raw geometry
-  // and a plain attachable. The one signal we forward is `vanilla-scale`: when
-  // the model's `display.fixed` scale isn't 1, the piece expects the entity's
-  // scale to be applied, so we flag it in the extension mapping.
-  const fixedScale = resolved.display?.fixed?.scale;
+  // Furniture (GeyserDisplayEntity) placement. The extension reads the server
+  // item_display entity's transform and applies it at runtime, so pieces whose
+  // plugin uses a real display transform (FIXED etc.) are repositioned live and
+  // need no baked offset. But furniture placed with `display_transform: NONE`
+  // (common for Nexo furniture) carries NO runtime transform — it's authored
+  // upright in block space and the extension just hangs it at the stand-in's
+  // item anchor, ~1.3 blocks up, so it floats. For those we seat it by its
+  // vertical centre. vanilla-scale comes from the plugin's own furniture scale
+  // (authoritative — Nexo sets the transform in its config, not the model's
+  // display.fixed), falling back to the model when no plugin hint exists.
+  const furnitureTransform = furnitureTransformForGroup(ctx, group);
   const furnitureVanillaScale =
-    fixedScale !== undefined && fixedScale.some((s) => Math.abs(s - 1) > 0.01);
+    furnitureTransform !== undefined
+      ? furnitureTransform.scale !== 1
+      : (resolved.display?.fixed?.scale?.some((s) => Math.abs(s - 1) > 0.01) ?? false);
+  const furnitureYOffset =
+    furnitureTransform?.none === true && elements.length > 0
+      ? furnitureSeatOffset(elements)
+      : 0;
 
   const attachableMaterial = ctx.options.attachableMaterial;
 
@@ -407,6 +415,7 @@ function convertModel(
       icon: iconKey,
       displayHandheld: false,
       furnitureVanillaScale,
+      furnitureYOffset,
     });
     if (headCosmetic) {
       definition.components = {
@@ -452,6 +461,53 @@ function convertModel(
   } else {
     ctx.report.converted("items-3d", modelId, outputs);
   }
+}
+
+/**
+ * Look up the plugin furniture transform for a group by matching its config
+ * key / item-model id / model name against `furnitureTransforms` — mirrors the
+ * furniture-key matching in itemsStage's buildDefinition. Undefined when the
+ * group isn't furniture or the plugin config carried no transform hint.
+ */
+function furnitureTransformForGroup(
+  ctx: ConversionContext,
+  group: PendingGeometry[],
+): { none: boolean; scale: number } | undefined {
+  const transforms = ctx.options.furnitureTransforms;
+  for (const { variant } of group) {
+    const keys: string[] = [];
+    const baseItem = variant.baseItem ?? groupBaseItem(ctx, group);
+    const cmd = cmdOf(variant);
+    if (baseItem !== undefined && cmd !== undefined) {
+      const k = ctx.options.cmdItemKeys[`${baseItem}|${cmd}`];
+      if (k !== undefined) keys.push(k);
+    }
+    if (variant.source.kind === "modern") {
+      keys.push(parseResourceLocation(variant.source.itemModelId).path.toLowerCase());
+    }
+    keys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
+    for (const k of keys) {
+      if (transforms[k] !== undefined) return transforms[k];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * GeyserDisplayEntity y-offset (blocks) that seats a NONE-transform furniture
+ * piece: negate the model's vertical centre. Java units are 1/16 block; a model
+ * centred at y=8 gives 0, taller pieces get pulled down proportionally so they
+ * don't hang at the stand-in's item anchor.
+ */
+function furnitureSeatOffset(elements: JavaElement[]): number {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const el of elements) {
+    minY = Math.min(minY, el.from[1], el.to[1]);
+    maxY = Math.max(maxY, el.from[1], el.to[1]);
+  }
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return 0;
+  return -((minY + maxY) / 2 / 16);
 }
 
 /**

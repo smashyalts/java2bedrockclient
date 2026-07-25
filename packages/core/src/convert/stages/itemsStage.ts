@@ -305,6 +305,7 @@ export function buildDefinition(
     displayHandheld: boolean;
     protectionValue?: number;
     furnitureVanillaScale?: boolean;
+    furnitureYOffset?: number;
   },
 ): GeyserItemDefinition {
   // Resolve the host item early — it also keys the config cmd lookup below.
@@ -394,6 +395,7 @@ export function buildDefinition(
         identifier: identifierName,
         ...(cmdValue !== undefined ? { modelData: cmdValue } : {}),
         vanillaScale: bedrock.furnitureVanillaScale ?? false,
+        yOffset: bedrock.furnitureYOffset ?? 0,
       });
     }
   }
