@@ -11,7 +11,7 @@ import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { fastHash } from "../../util/hash.js";
-import type { JavaDisplayTransform, JavaElement, JavaFaceName } from "../../java/model.js";
+import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
 import { inferHostItemFromModel } from "../../resolve/modelResolver.js";
 import { resolveTextureRef } from "../../resolve/modelResolver.js";
@@ -377,33 +377,19 @@ function convertModel(
   // 8. Register a mapping entry per variant, and an attachable per unique
   // bedrock identifier (definitions may get item-model based identifiers, so
   // one shared model can back several bedrock items).
-  // Furniture (GeyserDisplayEntity) placement. Java renders an item_display
-  // with the model's `display.fixed` transform baked in — critically a rotation
-  // (e.g. -90° about X) that stands a model authored lying-down upright, plus a
-  // scale. The Bedrock attachable carries none of that, so furniture renders
-  // flat / at the wrong height. We (a) emit the fixed rotation into the
-  // extension's `displayentityoptions.rotation` so it stands up, and (b) derive
-  // the y-offset from the model bounds AFTER applying that rotation+scale, so a
-  // stood-up chair is seated by its real (tall) height, not its flat one.
-  const furnitureFixed = resolved.display?.fixed;
-  const furnitureYOffset =
-    elements.length > 0 ? furnitureOffsetFromElements(elements, furnitureFixed) : undefined;
-  const furnitureRotation = nonZeroRotation(furnitureFixed?.rotation);
+  // Furniture (GeyserDisplayEntity) placement is handled entirely at runtime:
+  // the extension reads the server ItemDisplay entity's transform (rotation and
+  // scale) and applies it. Production furniture packs that convert 1:1 bake
+  // NOTHING into the pack — no rotation, no y-offset, no scale, no material
+  // swap — and rely on that runtime transform. We match them: ship raw geometry
+  // and a plain attachable. The one signal we forward is `vanilla-scale`: when
+  // the model's `display.fixed` scale isn't 1, the piece expects the entity's
+  // scale to be applied, so we flag it in the extension mapping.
+  const fixedScale = resolved.display?.fixed?.scale;
+  const furnitureVanillaScale =
+    fixedScale !== undefined && fixedScale.some((s) => Math.abs(s - 1) > 0.01);
 
-  // Furniture whose faces sample only opaque texels can render with the vanilla
-  // `entity_nocull` material, which disables back-face culling so concave pieces
-  // (sofas, chairs) keep the interior faces Bedrock would otherwise cull — the
-  // "missing faces" bug. This is a stock vanilla material (no custom .material
-  // file, which needs a materials/common.json manifest — too fragile to ship).
-  // It has no alpha test, so a cutout texture would render its transparent
-  // pixels as solid; we therefore check the texels the model actually samples
-  // (not the whole atlas — furniture textures carry transparent padding that
-  // never lands on a face). Genuinely cutout furniture (lamps, plants) still
-  // samples transparency and stays one-sided.
-  const attachableMaterial =
-    isFurnitureGroup(ctx, group) && furnitureFacesOpaque(elements, resolved.textures, images)
-      ? "entity_nocull"
-      : ctx.options.attachableMaterial;
+  const attachableMaterial = ctx.options.attachableMaterial;
 
   // Head cosmetic heuristic: a 3D model that defines a `head` display transform
   // but no hand transforms (thirdperson/firstperson) is a hat / head cosmetic
@@ -420,8 +406,7 @@ function convertModel(
     const definition = buildDefinition(ctx, variant, {
       icon: iconKey,
       displayHandheld: false,
-      furnitureYOffset,
-      furnitureRotation,
+      furnitureVanillaScale,
     });
     if (headCosmetic) {
       definition.components = {
@@ -493,79 +478,6 @@ function groupBaseItem(ctx: ConversionContext, group: PendingGeometry[]): string
   return undefined;
 }
 
-/**
- * True when any variant in the group is a world-placed furniture item (matched
- * by config key / item-model id / model name against `furnitureItems`). Mirrors
- * the furniture-key matching in itemsStage's buildDefinition.
- */
-function isFurnitureGroup(ctx: ConversionContext, group: PendingGeometry[]): boolean {
-  const furniture = ctx.options.furnitureItems;
-  if (furniture.length === 0) return false;
-  return group.some(({ variant }) => {
-    const keys: string[] = [];
-    const baseItem = variant.baseItem ?? groupBaseItem(ctx, group);
-    const cmd = cmdOf(variant);
-    if (baseItem !== undefined && cmd !== undefined) {
-      const k = ctx.options.cmdItemKeys[`${baseItem}|${cmd}`];
-      if (k !== undefined) keys.push(k);
-    }
-    if (variant.source.kind === "modern") {
-      keys.push(parseResourceLocation(variant.source.itemModelId).path.toLowerCase());
-    }
-    keys.push(parseResourceLocation(variant.model).path.split("/").pop()!.toLowerCase());
-    return keys.some((k) => furniture.includes(k));
-  });
-}
-
-const FACE_NAMES: JavaFaceName[] = ["north", "south", "east", "west", "up", "down"];
-
-/**
- * True when every texel the model's faces actually sample is fully opaque
- * (alpha === 255). Unlike scanning the whole texture, this ignores transparent
- * padding around the used regions — furniture atlases are mostly padding — so
- * solid furniture qualifies for the double-sided `entity_nocull` material while
- * genuinely cutout pieces (which sample transparent texels) don't. Returns
- * false if nothing is sampled (no faces → nothing to double-side).
- */
-function furnitureFacesOpaque(
-  elements: JavaElement[],
-  textures: Record<string, string>,
-  images: Map<string, RgbaImage>,
-): boolean {
-  let sampledAny = false;
-  for (const el of elements) {
-    if (el.faces === undefined) continue;
-    for (const faceName of FACE_NAMES) {
-      const face = el.faces[faceName];
-      if (face === undefined) continue;
-      const id = resolveFaceTexture(textures, face.texture);
-      if (id === undefined) continue;
-      const image = images.get(id);
-      if (image === undefined) continue;
-      const uv = face.uv ?? defaultUv(faceName, el.from, el.to);
-      if (!regionOpaque(image, uv)) return false;
-      sampledAny = true;
-    }
-  }
-  return sampledAny;
-}
-
-/** True when every texel in the Java 0–16 UV rect of the image is opaque. */
-function regionOpaque(image: RgbaImage, uv: [number, number, number, number]): boolean {
-  const { width, height, data } = image;
-  const clamp = (v: number, hi: number) => Math.max(0, Math.min(hi, v));
-  const x0 = clamp(Math.floor((Math.min(uv[0], uv[2]) / 16) * width), width);
-  const x1 = clamp(Math.ceil((Math.max(uv[0], uv[2]) / 16) * width), width);
-  const y0 = clamp(Math.floor((Math.min(uv[1], uv[3]) / 16) * height), height);
-  const y1 = clamp(Math.ceil((Math.max(uv[1], uv[3]) / 16) * height), height);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
-      if (data[(y * width + x) * 4 + 3] !== 255) return false;
-    }
-  }
-  return true;
-}
-
 /** custom_model_data value of a variant (legacy field or modern range_dispatch predicate). */
 function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
   if (variant.source.kind === "legacy") return variant.source.customModelData;
@@ -577,72 +489,6 @@ function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
 
 function resolveFaceTexture(textures: Record<string, string>, ref: string): string | undefined {
   return resolveTextureRef(textures, ref);
-}
-
-/**
- * GeyserDisplayEntity y-offset for a furniture model: negate the model's
- * vertical centre in blocks. Java model units are 1/16 block; the extension's
- * default -0.5 corresponds to a model centred at y=8. When the model carries a
- * `display.fixed` rotation (item_displays bake it in, and we emit it too), we
- * rotate the element corners first, so a chair authored lying down — whose
- * height comes from its Z span until a -90° X rotation stands it up — is seated
- * by its true upright height rather than its flat one. The fixed scale is left
- * out: the attachable renders at the model's natural size unless the tester
- * turns on `vanilla-scale`, so folding scale in here would overshoot.
- */
-function furnitureOffsetFromElements(
-  elements: JavaElement[],
-  fixed?: JavaDisplayTransform,
-): number {
-  // Match the rotation the extension actually applies: it negates the Y and Z
-  // euler components (Java→Bedrock handedness) in pushRotationProperties, so a
-  // chair's [-90,90,0] renders as [-90,-90,0]. Computing the offset from the
-  // raw Java rotation instead seated chairs (ry≠0) wrong while sofas (ry=0)
-  // stayed correct.
-  const r = fixed?.rotation ?? [0, 0, 0];
-  const rot: [number, number, number] = [r[0]!, -r[1]!, -r[2]!];
-  const pivot = 8; // Minecraft display transforms pivot about the [8,8,8] centre.
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const el of elements) {
-    for (const x of [el.from[0], el.to[0]]) {
-      for (const y of [el.from[1], el.to[1]]) {
-        for (const z of [el.from[2], el.to[2]]) {
-          const v: [number, number, number] = [x - pivot, y - pivot, z - pivot];
-          const ty = rotateXYZ(v, rot)[1] + pivot;
-          minY = Math.min(minY, ty);
-          maxY = Math.max(maxY, ty);
-        }
-      }
-    }
-  }
-  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return -0.5;
-  return -((minY + maxY) / 2 / 16);
-}
-
-/** Rotate a vector by Euler angles (degrees) in Minecraft's X·Y·Z order. */
-function rotateXYZ(
-  v: [number, number, number],
-  deg: [number, number, number],
-): [number, number, number] {
-  const [ax, ay, az] = deg.map((d) => (d * Math.PI) / 180) as [number, number, number];
-  let [x, y, z] = v;
-  // (Rx·Ry·Rz)·v — apply Rz, then Ry, then Rx.
-  let c = Math.cos(az), s = Math.sin(az);
-  [x, y] = [x * c - y * s, x * s + y * c];
-  c = Math.cos(ay), s = Math.sin(ay);
-  [x, z] = [x * c + z * s, -x * s + z * c];
-  c = Math.cos(ax), s = Math.sin(ax);
-  [y, z] = [y * c - z * s, y * s + z * c];
-  return [x, y, z];
-}
-
-/** A fixed rotation worth emitting — undefined when absent or all-zero. */
-function nonZeroRotation(
-  rot?: [number, number, number],
-): [number, number, number] | undefined {
-  if (rot === undefined) return undefined;
-  return rot.some((a) => a !== 0) ? rot : undefined;
 }
 
 function pickIcon(

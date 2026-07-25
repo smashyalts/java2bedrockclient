@@ -202,74 +202,6 @@ items:
     expect(result.displayEntityMappings).toContain('item-identifier: "plushie_bear"');
   });
 
-  it("derives a per-item y-offset from a 3D furniture model's height", async () => {
-    // A tall furniture model (e.g. a chair) spanning y 0..24 → vertical centre
-    // 12 → y-offset -0.75, not the flat -0.5 that leaves tall pieces floating.
-    const packZip = fixtureZip({
-      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
-      "assets/nexo/items/tall_chair.json": JSON.stringify({
-        model: { type: "minecraft:model", model: "nexo:item/tall_chair" },
-      }),
-      "assets/nexo/models/item/tall_chair.json": JSON.stringify({
-        textures: { "1": "nexo:item/tall_chair" },
-        elements: [
-          { from: [4, 0, 4], to: [12, 24, 12], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
-        ],
-        display: { fixed: { scale: [2, 2, 2] } },
-      }),
-      "assets/nexo/textures/item/tall_chair.png": png(),
-    });
-    const result = await convertPack(packZip, {
-      packName: "Chair",
-      baseItemHints: { tall_chair: "minecraft:leather_horse_armor" },
-      furnitureItems: ["tall_chair"],
-    });
-    const yml = result.displayEntityMappings!;
-    expect(yml).toContain("y-offset: -0.750");
-    // Not the flat default that leaves tall furniture floating.
-    expect(yml).not.toContain("y-offset: -0.500");
-    // Furniture on leather_horse_armor is hidden by the extension default →
-    // a corrected config.yml is emitted with it removed from hide-custom-types.
-    const cfg = result.displayEntityConfig!;
-    expect(cfg).toBeDefined();
-    expect(cfg).toContain("hide-custom-types: []");
-    // hide-types stays intact so vanilla item-displays are still hidden.
-    expect(cfg).toContain('- "minecraft:leather_horse_armor"');
-  });
-
-  it("emits display.fixed rotation and seats furniture by its stood-up height", async () => {
-    // A chair modelled lying down: tall span is along Z (0..24), thin in Y.
-    // Java's display.fixed rotation [-90,0,0] stands it upright; without it the
-    // Bedrock attachable renders flat. We emit that rotation and derive the
-    // y-offset from the rotated bounds (Z→Y), so it's seated by its real height.
-    const packZip = fixtureZip({
-      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
-      "assets/nexo/items/lying_chair.json": JSON.stringify({
-        model: { type: "minecraft:model", model: "nexo:item/lying_chair" },
-      }),
-      "assets/nexo/models/item/lying_chair.json": JSON.stringify({
-        textures: { "1": "nexo:item/lying_chair" },
-        elements: [
-          { from: [4, 6, 0], to: [12, 10, 24], faces: { north: { texture: "#1" }, south: { texture: "#1" } } },
-        ],
-        display: { fixed: { rotation: [-90, 0, 0] } },
-      }),
-      "assets/nexo/textures/item/lying_chair.png": png(),
-    });
-    const result = await convertPack(packZip, {
-      packName: "Chair",
-      baseItemHints: { lying_chair: "minecraft:paper" },
-      furnitureItems: ["lying_chair"],
-    });
-    const yml = result.displayEntityMappings!;
-    // Fixed rotation carried into the extension mapping.
-    expect(yml).toContain("rotation: [-90.0, 0.0, 0.0]");
-    // Rotated bounds: Z 0..24 becomes the vertical span, centre ~ -4 units off
-    // the pivot → offset well below the flat-model default, not -0.500.
-    expect(yml).not.toContain("y-offset: -0.500");
-    expect(yml).toMatch(/y-offset: -0\.(6|7|8)/);
-  });
-
   it("omits the furniture config.yml when no furniture uses a hidden base item", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
@@ -292,7 +224,12 @@ items:
     expect(result.displayEntityConfig).toBeUndefined();
   });
 
-  it("renders opaque 3D furniture double-sided (entity_nocull) so concave pieces keep their faces", async () => {
+  it("ships furniture with the plain default attachable material (no baked material swap)", async () => {
+    // Furniture placement is handled at runtime by GeyserDisplayEntity reading
+    // the server item_display transform — the pack bakes nothing, including no
+    // material swap. Production 1:1 furniture packs use plain entity_alphatest_
+    // one_sided; double-sided faces come from the source model's own inverted
+    // duplicate elements, not a material.
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
       "assets/nexo/items/sofa.json": JSON.stringify({
@@ -313,73 +250,67 @@ items:
     });
     const files = attachables(result.mcpack);
     expect(files.length).toBeGreaterThan(0);
-    // Opaque furniture → vanilla double-sided material (no back-face culling).
     for (const { json } of files) {
-      expect(json["minecraft:attachable"].description.materials.default).toBe("entity_nocull");
+      expect(json["minecraft:attachable"].description.materials.default).toBe(
+        "entity_alphatest_one_sided",
+      );
     }
   });
 
-  it("double-sides furniture that samples only opaque texels of a padded texture", async () => {
-    // Texture is opaque in UV 0..8 and transparent padding elsewhere. The face
-    // samples only the opaque region → entity_nocull. A whole-texture opacity
-    // check would wrongly see the padding and keep it one-sided.
+  it("emits GeyserDisplayEntity options with no baked rotation and y-offset 0", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
-      "assets/nexo/items/padded_sofa.json": JSON.stringify({
-        model: { type: "minecraft:model", model: "nexo:item/padded_sofa" },
+      "assets/nexo/items/chair.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/chair" },
       }),
-      "assets/nexo/models/item/padded_sofa.json": JSON.stringify({
-        textures: { "1": "nexo:item/padded_sofa" },
+      // A lying-down chair with a -90 display.fixed rotation and unit scale:
+      // rotation is applied at runtime, so it must NOT appear in the mapping,
+      // and scale 1 → vanilla-scale false.
+      "assets/nexo/models/item/chair.json": JSON.stringify({
+        textures: { "1": "nexo:item/chair" },
+        display: { fixed: { rotation: [-90, 0, 0], scale: [1, 1, 1] } },
         elements: [
-          {
-            from: [0, 0, 0],
-            to: [16, 8, 16],
-            faces: {
-              north: { texture: "#1", uv: [0, 0, 8, 8] },
-              up: { texture: "#1", uv: [0, 0, 8, 8] },
-            },
-          },
+          { from: [0, 0, 0], to: [16, 2, 16], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
         ],
       }),
-      "assets/nexo/textures/item/padded_sofa.png": paddedPng(),
+      "assets/nexo/textures/item/chair.png": opaquePng(),
     });
     const result = await convertPack(packZip, {
-      packName: "Padded",
-      baseItemHints: { padded_sofa: "minecraft:paper" },
-      furnitureItems: ["padded_sofa"],
+      packName: "Chair",
+      baseItemHints: { chair: "minecraft:paper" },
+      furnitureItems: ["chair"],
     });
-    const files = attachables(result.mcpack);
-    expect(files.length).toBeGreaterThan(0);
-    for (const { json } of files) {
-      expect(json["minecraft:attachable"].description.materials.default).toBe("entity_nocull");
-    }
+    const yaml = result.displayEntityMappings!;
+    expect(yaml).toContain("y-offset: 0.0");
+    expect(yaml).toContain("vanilla-scale: false");
+    // No baked rotation key in any mapping body (the header comment may mention
+    // the word; assert no `rotation:` option is emitted).
+    expect(yaml).not.toMatch(/^\s*rotation:/m);
   });
 
-  it("keeps transparent 3D furniture one-sided (entity_nocull would show cutout pixels as solid)", async () => {
+  it("flags vanilla-scale when the furniture's display.fixed scale isn't 1", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
-      "assets/nexo/items/lamp.json": JSON.stringify({
-        model: { type: "minecraft:model", model: "nexo:item/lamp" },
+      "assets/nexo/items/mushroom.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/mushroom" },
       }),
-      "assets/nexo/models/item/lamp.json": JSON.stringify({
-        textures: { "1": "nexo:item/lamp" },
+      "assets/nexo/models/item/mushroom.json": JSON.stringify({
+        textures: { "1": "nexo:item/mushroom" },
+        display: { fixed: { rotation: [-90, 0, 0], scale: [2, 2, 2] } },
         elements: [
-          { from: [0, 0, 0], to: [16, 8, 16], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
+          { from: [4, 0, 4], to: [12, 12, 12], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
         ],
       }),
-      // png() fills alpha 99 → has transparency.
-      "assets/nexo/textures/item/lamp.png": png(),
+      "assets/nexo/textures/item/mushroom.png": opaquePng(),
     });
     const result = await convertPack(packZip, {
-      packName: "Lamp",
-      baseItemHints: { lamp: "minecraft:paper" },
-      furnitureItems: ["lamp"],
+      packName: "Mushroom",
+      baseItemHints: { mushroom: "minecraft:paper" },
+      furnitureItems: ["mushroom"],
     });
-    const files = attachables(result.mcpack);
-    expect(files.length).toBeGreaterThan(0);
-    for (const { json } of files) {
-      expect(json["minecraft:attachable"].description.materials.default).not.toBe("entity_nocull");
-    }
+    const yaml = result.displayEntityMappings!;
+    expect(yaml).toContain("vanilla-scale: true");
+    expect(yaml).toContain("vanilla-scale-multiplier: 1");
   });
 
   it("maps modern item definitions under hinted base items", async () => {

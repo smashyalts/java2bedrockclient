@@ -205,8 +205,7 @@ function buildDisplayEntityYaml(
     type: string;
     identifier: string;
     modelData?: number;
-    yOffset?: number;
-    rotation?: [number, number, number];
+    vanillaScale?: boolean;
   }[],
 ): string {
   const lines = [
@@ -216,23 +215,15 @@ function buildDisplayEntityYaml(
     "# Install: drop the extension jar in Geyser's extensions/ folder, then put",
     "# this file in extensions/geyserdisplayentity/Mappings/.",
     "#",
-    "# IMPORTANT — furniture on minecraft:leather_horse_armor (and bone) is HIDDEN",
-    "# by the extension's default config.yml (hide-custom-types). Symptom: the",
-    "# piece flashes for one frame then disappears, leaving only its hitbox. Use",
-    "# the geyserdisplayentity_config.yml this converter emits alongside this file",
-    "# (drop it in extensions/geyserdisplayentity/config.yml), or edit your own:",
-    "# remove those items from hide-custom-types. Furniture on other materials",
-    "# (e.g. paper) already shows without this change.",
+    "# Placement — rotation, height and (when enabled) scale — is applied at",
+    "# runtime by the extension reading the server's item_display entity. The",
+    "# pack ships only raw geometry; nothing is baked. This mirrors how",
+    "# production furniture packs convert 1:1, so a chair the server places",
+    "# stands upright and sits at the right height without per-item tuning.",
     "#",
-    "# rotation reproduces the model's `display.fixed` transform, which Java",
-    "# bakes into item_displays but the Bedrock attachable drops — this is what",
-    "# stands a chair modelled lying-down upright. y-offset is derived from the",
-    "# model's vertical centre AFTER that rotation, so tall furniture doesn't",
-    "# float. If a piece still floats, lower its y-offset; if it sinks, raise it.",
-    "# If a piece is upright but facing the wrong way, negate a rotation axis.",
-    "# Other tunables the extension accepts here: `vanilla-scale: true` to match",
-    "# the server's display-entity scale, and `hand: true` to anchor the item to",
-    "# the stand-in's hand instead of its chest.",
+    "# vanilla-scale makes the extension apply the entity's own scale — set for",
+    "# pieces whose Java `display.fixed` scale isn't 1 (they expect it). y-offset",
+    "# stays 0 here; the global default (-0.5) lives in config.yml.",
     "mappings:",
   ];
   for (const e of entries) {
@@ -240,34 +231,34 @@ function buildDisplayEntityYaml(
     lines.push(`    type: "${e.type}"`);
     if (e.modelData !== undefined) {
       lines.push(`    model-data: ${e.modelData}`);
+      lines.push(`    item-identifier: "none"`);
     } else {
       lines.push(`    item-identifier: "${e.identifier}"`);
     }
+    const vanilla = e.vanillaScale ?? false;
     lines.push("    displayentityoptions:");
-    lines.push(`      y-offset: ${(e.yOffset ?? -0.5).toFixed(3)}`);
-    if (e.rotation !== undefined && e.rotation.some((a) => a !== 0)) {
-      lines.push(`      rotation: [${e.rotation.map((a) => a.toFixed(1)).join(", ")}]`);
-    }
+    lines.push("      y-offset: 0.0");
+    lines.push(`      vanilla-scale: ${vanilla}`);
+    lines.push(`      vanilla-scale-multiplier: ${vanilla ? 1 : 0}`);
+    lines.push("      hand: false");
   }
   return lines.join("\n") + "\n";
 }
 
 /**
- * The GeyserDisplayEntity extension hides custom item-displays whose Java item
- * is in `hide-custom-types` (default: leather_horse_armor) — so furniture that
- * a plugin builds on leather_horse_armor flashes then vanishes on Bedrock.
- * These are the extension's defaults; we regenerate config.yml with the
- * converted furniture's base items pulled out of that list.
+ * The GeyserDisplayEntity extension hides genuine vanilla item-displays whose
+ * Java item is in `hide-types` (current default: minecraft:bone) so they don't
+ * show as stray items. Furniture placed on such a base item would be hidden
+ * too — so if any converted furniture uses one, we regenerate config.yml with
+ * that item removed from hide-types. Otherwise we emit nothing and leave the
+ * server's own config untouched.
  */
-const HIDE_CUSTOM_DEFAULTS = ["minecraft:leather_horse_armor"];
-const HIDE_TYPE_DEFAULTS = ["minecraft:leather_horse_armor", "minecraft:bone"];
+const HIDE_TYPE_DEFAULTS = ["minecraft:bone"];
 
 function buildDisplayEntityConfig(furnitureBaseItems: Set<string>): string | undefined {
   // Only worth emitting when some furniture uses a hidden-by-default base item.
-  if (!HIDE_CUSTOM_DEFAULTS.some((t) => furnitureBaseItems.has(t))) return undefined;
-  // Keep hide-custom-types entries that no furniture uses (so unrelated custom
-  // displays stay hidden); drop the ones our furniture needs visible.
-  const hideCustom = HIDE_CUSTOM_DEFAULTS.filter((t) => !furnitureBaseItems.has(t));
+  if (!HIDE_TYPE_DEFAULTS.some((t) => furnitureBaseItems.has(t))) return undefined;
+  const hideTypes = HIDE_TYPE_DEFAULTS.filter((t) => !furnitureBaseItems.has(t));
   const yamlList = (items: string[]): string =>
     items.length === 0 ? " []" : "\n" + items.map((t) => `  - "${t}"`).join("\n");
   return [
@@ -275,22 +266,15 @@ function buildDisplayEntityConfig(furnitureBaseItems: Set<string>): string | und
     "# Drop this in extensions/geyserdisplayentity/config.yml (back up your own",
     "# first if you've customised it). The only change from the extension's",
     "# default is that this converter's furniture base items were removed from",
-    "# hide-custom-types, so custom furniture on them renders instead of being",
-    "# hidden (the \"flashes then disappears\" bug). hide-types is left intact so",
-    "# genuine vanilla item-displays stay hidden.",
+    "# hide-types, so custom furniture on them renders instead of being hidden.",
     "general:",
+    "  use-legacy-models: true",
     "  height: 1.7",
     "  y-offset: -0.5",
     "  vanilla-scale: false",
     "  vanilla-scale-multiplier: 1",
     "  hand: false",
-    `hide-types:${yamlList(HIDE_TYPE_DEFAULTS)}`,
-    `hide-custom-types:${yamlList(hideCustom)}`,
-    "hide-unmapped-vanilla-displays: true",
-    "settings:",
-    "  debug:",
-    "    per-player-load-mappings: false",
-    "    log-displays: false",
+    `hide-types:${yamlList(hideTypes)}`,
     "",
   ].join("\n");
 }

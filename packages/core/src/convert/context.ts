@@ -190,20 +190,13 @@ export interface ConversionContext {
     identifier: string;
     modelData?: number;
     /**
-     * Per-item vertical offset for the GeyserDisplayEntity stand-in, derived
-     * from the furniture model's vertical centre (Java units → blocks). The
-     * extension's default -0.5 assumes a standard 1-block item (centre at y=8);
-     * this generalises it so tall furniture doesn't float.
+     * Whether the GeyserDisplayEntity extension should apply the server
+     * ItemDisplay entity's own scale (its `vanilla-scale` option). Set when the
+     * model's `display.fixed` scale isn't 1 — the piece was authored expecting
+     * that runtime scale. Placement rotation and height are handled entirely by
+     * the extension reading the entity transform; the pack bakes nothing.
      */
-    yOffset?: number;
-    /**
-     * Java `display.fixed` rotation (degrees, [x,y,z]) baked by the client for
-     * item_displays but dropped by the attachable. Emitted into the extension's
-     * `displayentityoptions.rotation` so furniture that's modelled lying down
-     * (a chair with a -90 X rotation) stands upright on Bedrock instead of
-     * rendering flat. Omitted when the model has no fixed rotation.
-     */
-    rotation?: [number, number, number];
+    vanillaScale?: boolean;
   }[];
   /**
    * Cache for {@link inferHostItemFromModel} — maps a model resource location
