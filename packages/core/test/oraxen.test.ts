@@ -202,7 +202,7 @@ items:
     expect(result.displayEntityMappings).toContain('item-identifier: "plushie_bear"');
   });
 
-  it("omits the furniture config.yml when no furniture uses a hidden base item", async () => {
+  it("emits the furniture config.yml with the floor-seating global values", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
       "assets/nexo/items/paper_lamp.json": JSON.stringify({
@@ -220,8 +220,13 @@ items:
       furnitureItems: ["paper_lamp"],
     });
     expect(result.displayEntityMappings).toBeDefined();
-    // paper isn't hidden by default → no config.yml needed.
-    expect(result.displayEntityConfig).toBeUndefined();
+    // Always emitted: the global y-offset/height are what seat furniture on the
+    // floor (per-item mappings keep y-offset 0 and rely on these).
+    const cfg = result.displayEntityConfig!;
+    expect(cfg).toContain("y-offset: -0.5");
+    expect(cfg).toContain("height: 1.7");
+    // paper isn't hidden by default → hide-types keeps bone.
+    expect(cfg).toContain('- "minecraft:bone"');
   });
 
   it("ships furniture with the plain default attachable material (no baked material swap)", async () => {

@@ -87,7 +87,7 @@ export function ResultView({
               style={{ ...buttonStyle, background: "var(--panel)", color: "var(--warn)", border: "1px solid var(--warn)" }}
               onClick={() => download("geyserdisplayentity_config.yml", result.displayEntityConfig!, "text/yaml")}
             >
-              ⬇ furniture config.yml (fixes disappearing)
+              ⬇ furniture config.yml (seats furniture)
             </button>
           )}
           <button
@@ -129,9 +129,10 @@ export function ResultView({
               furniture mappings yml in <code>extensions/geyserdisplayentity/Mappings/</code>.
               {result.displayEntityConfig !== undefined && (
                 <>
-                  {" "}Also drop the furniture <code>config.yml</code> in{" "}
-                  <code>extensions/geyserdisplayentity/</code> — without it, furniture on
-                  leather_horse_armor flashes then disappears.
+                  {" "}<strong>You must also</strong> drop the furniture <code>config.yml</code> in{" "}
+                  <code>extensions/geyserdisplayentity/</code> and restart — its global
+                  y-offset/height are what seat furniture on the floor. Without it, furniture
+                  floats about a block above where it's placed.
                 </>
               )}
             </>
