@@ -60,7 +60,12 @@ export const itemsStage: PipelineStage = {
     for (const variant of variants) {
       done++;
       if (done % 25 === 0) ctx.progress("items", done, variants.length);
-      const dedupeKey = `${variant.baseItem ?? "?"}|${variant.source.kind}|${variant.model}|${variant.predicates.length}`;
+      // Key on everything that makes a variant distinct — including the actual
+      // predicate values and the source discriminant (cmd / item-model id).
+      // Keying on `predicates.length` alone collapsed variants that share a
+      // model but differ in predicate values (two range_dispatch thresholds, a
+      // condition's on_true/on_false both pointing at one model).
+      const dedupeKey = `${variant.baseItem ?? "?"}|${JSON.stringify(variant.source)}|${variant.model}|${JSON.stringify(variant.predicates)}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
       try {

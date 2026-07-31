@@ -7,6 +7,15 @@ export class VirtualFs {
   private files = new Map<string, Uint8Array>();
   private sortedPaths: string[] | null = null;
 
+  /**
+   * When true, {@link writeJson} always emits compact JSON regardless of its
+   * `pretty` argument — the pack-optimization switch, so every stage's JSON
+   * (geometry, attachables, animations, …) is minified, not just the packaging
+   * stage's. Off by default so the Java-side VFS and un-optimized runs stay
+   * readable.
+   */
+  constructor(private minifyJson = false) {}
+
   private invalidate(): void {
     this.sortedPaths = null;
   }
@@ -39,7 +48,8 @@ export class VirtualFs {
   }
 
   writeJson(path: string, value: unknown, pretty = true): void {
-    this.writeText(path, JSON.stringify(value, null, pretty ? 2 : undefined));
+    const indent = this.minifyJson ? undefined : pretty ? 2 : undefined;
+    this.writeText(path, JSON.stringify(value, null, indent));
   }
 
   delete(path: string): boolean {

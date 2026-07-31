@@ -16,7 +16,11 @@ import { fastHash } from "../../util/hash.js";
  *    smaller file — pixels stay bit-identical either way.
  * 3. Zopfli recompress: re-deflate every PNG's pixel stream with the zopfli
  *    wasm (exhaustive deflate; pixels bit-identical). Skipped in fast mode.
- * 4. JSON minify: every .json in the pack re-emitted without whitespace.
+ *
+ * JSON minification is not a step here: when optimizePack is on, the Bedrock
+ * VirtualFs is constructed in minify mode, so every stage's writeJson emits
+ * compact JSON as it's written. The texture-rewrite pass below re-stringifies
+ * the JSON it touches compactly too.
  *
  * Every transform is lossless for the client: same pixels, same parsed JSON.
  * Disable with optimizePack: false.

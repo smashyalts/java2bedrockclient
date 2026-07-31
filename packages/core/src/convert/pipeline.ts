@@ -89,6 +89,7 @@ export async function convertPack(
     backpackItems: options?.backpackItems ?? DEFAULT_OPTIONS.backpackItems,
     furnitureItems: options?.furnitureItems ?? DEFAULT_OPTIONS.furnitureItems,
     furnitureTransforms: options?.furnitureTransforms ?? DEFAULT_OPTIONS.furnitureTransforms,
+    configZipProvided: options?.configZipProvided ?? false,
     maxAnimationFrames: options?.maxAnimationFrames ?? DEFAULT_OPTIONS.maxAnimationFrames,
     optimizePack: options?.optimizePack ?? DEFAULT_OPTIONS.optimizePack,
     maxCompression: options?.maxCompression ?? DEFAULT_OPTIONS.maxCompression,
@@ -99,7 +100,7 @@ export async function convertPack(
   const timings = new Timings();
   const ctx: ConversionContext = {
     java,
-    bedrock: new VirtualFs(),
+    bedrock: new VirtualFs(opts.optimizePack),
     options: opts,
     report: new ConversionReport(),
     timings,
