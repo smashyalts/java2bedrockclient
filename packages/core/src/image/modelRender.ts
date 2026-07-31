@@ -68,8 +68,11 @@ export function renderModelIcon(
   lookup: FaceTextureLookup,
   guiDisplay: JavaDisplayTransform | undefined,
   size = 64,
+  textureSize: [number, number] = [16, 16],
 ): RgbaImage {
-  return timeOp("icon.render", () => renderModelIconUntimed(elements, lookup, guiDisplay, size));
+  return timeOp("icon.render", () =>
+    renderModelIconUntimed(elements, lookup, guiDisplay, size, textureSize),
+  );
 }
 
 function renderModelIconUntimed(
@@ -77,7 +80,9 @@ function renderModelIconUntimed(
   lookup: FaceTextureLookup,
   guiDisplay: JavaDisplayTransform | undefined,
   size: number,
+  textureSize: [number, number],
 ): RgbaImage {
+  const [texSizeU, texSizeV] = textureSize;
   const rotationDeg = guiDisplay?.rotation ?? [30, 225, 0];
   const center: Vec3 = [8, 8, 8];
 
@@ -137,7 +142,10 @@ function renderModelIconUntimed(
   for (const face of faces) {
     const p = face.pts.map(toScreen);
     // Two triangles: 0-1-2 and 0-2-3, with UV corners (u1,v1)(u2,v1)(u2,v2)(u1,v2).
-    const [u1, v1, u2, v2] = face.uv;
+    // Normalize the model uv (texture_size space) to 0–1 here so drawTriangle is
+    // resolution-agnostic — HD models set texture_size to e.g. [128,128].
+    const u1 = face.uv[0] / texSizeU, v1 = face.uv[1] / texSizeV;
+    const u2 = face.uv[2] / texSizeU, v2 = face.uv[3] / texSizeV;
     const uvs: [number, number][] = [[u1, v1], [u2, v1], [u2, v2], [u1, v2]];
     drawTriangle(icon, [p[0]!, p[1]!, p[2]!], [uvs[0]!, uvs[1]!, uvs[2]!], face.image, face.shade);
     drawTriangle(icon, [p[0]!, p[2]!, p[3]!], [uvs[0]!, uvs[2]!, uvs[3]!], face.image, face.shade);
@@ -168,11 +176,11 @@ function drawTriangle(
       const w1 = ((cx - px) * (ay - py) - (ax - px) * (cy - py)) / area;
       const w2 = 1 - w0 - w1;
       if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-      // Java UV is 0–16 across the texture.
+      // UVs are pre-normalized to 0–1 by the caller.
       const u = uvs[0][0] * w0 + uvs[1][0] * w1 + uvs[2][0] * w2;
       const v = uvs[0][1] * w0 + uvs[1][1] * w1 + uvs[2][1] * w2;
-      const tx = Math.min(texture.width - 1, Math.max(0, Math.floor((u / 16) * texture.width)));
-      const ty = Math.min(texture.height - 1, Math.max(0, Math.floor((v / 16) * texture.height)));
+      const tx = Math.min(texture.width - 1, Math.max(0, Math.floor(u * texture.width)));
+      const ty = Math.min(texture.height - 1, Math.max(0, Math.floor(v * texture.height)));
       const si = (ty * texture.width + tx) * 4;
       const alpha = texture.data[si + 3]!;
       if (alpha < 8) continue;

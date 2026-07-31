@@ -22,6 +22,9 @@ export interface ResolvedModel {
   textures: Record<string, string>;
   /** Elements from the nearest model in the chain that defines them. */
   elements: JavaElement[] | undefined;
+  /** UV authoring resolution (default [16, 16]); taken from the model that
+   * defines the elements. Face `uv`s are normalized by this, not a fixed 16. */
+  textureSize: [number, number] | undefined;
   /** Display transforms merged along the chain (child wins per context). */
   display: Partial<Record<JavaDisplayContext, JavaDisplayTransform>>;
   /** Deepest parent id that was NOT found in the pack (a vanilla parent), if any. */
@@ -96,11 +99,14 @@ function resolveModelUncached(pack: JavaPack, id: string): ResolvedModel | undef
   }
   resolveTextureRefs(textures);
 
-  // Elements: nearest model in the chain that defines them wins.
+  // Elements: nearest model in the chain that defines them wins. texture_size
+  // is authored alongside the elements' UVs, so take it from the same model.
   let elements: JavaElement[] | undefined;
+  let textureSize: [number, number] | undefined;
   for (const model of models) {
     if (model.elements !== undefined) {
       elements = model.elements;
+      textureSize = model.texture_size;
       break;
     }
   }
@@ -125,7 +131,7 @@ function resolveModelUncached(pack: JavaPack, id: string): ResolvedModel | undef
     kind = "sprite";
   }
 
-  return { id, kind, textures, elements, display, terminalParent, chain };
+  return { id, kind, textures, elements, textureSize, display, terminalParent, chain };
 }
 
 /** Resolve a single "#name" texture reference to a resource location, or undefined on cycle/missing. */

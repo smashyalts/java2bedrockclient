@@ -40,6 +40,47 @@ const SWORD_MODEL = {
 };
 
 describe("3D custom items", () => {
+  it("honors texture_size when mapping UVs into the atlas (HD models)", async () => {
+    // A 128-res model: face uv is in 0–128 space, not 0–16. Normalizing by a
+    // hardcoded 16 would scale UVs 8× too large and sample garbage (the
+    // blue-stripe bug). The atlas is the single 128×128 texture, so a uv of
+    // [0,0,64,64] must map to uv/uv_size within the texture, not 8× past it.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/models/item/diamond_sword.json": JSON.stringify({
+        parent: "minecraft:item/handheld",
+        textures: { layer0: "minecraft:item/diamond_sword" },
+        overrides: [{ predicate: { custom_model_data: 7 }, model: "custom:item/hd_axe" }],
+      }),
+      "assets/custom/models/item/hd_axe.json": JSON.stringify({
+        texture_size: [128, 128],
+        textures: { "0": "custom:item/hd", particle: "custom:item/hd" },
+        elements: [
+          {
+            from: [4, 0, 4],
+            to: [12, 16, 12],
+            faces: {
+              north: { uv: [0, 0, 64, 64], texture: "#0" },
+              up: { uv: [0, 0, 64, 64], texture: "#0" },
+            },
+          },
+        ],
+      }),
+      "assets/custom/textures/item/hd.png": png(128, 128, [30, 90, 200, 255]),
+    });
+
+    const result = await convertPack(zip, { packName: "HD" });
+    const out = readZip(result.mcpack);
+    const geo = JSON.parse(out.readText("models/entity/geyser_custom/custom_item_hd_axe.geo.json")!);
+    const desc = geo["minecraft:geometry"][0].description;
+    const cube = geo["minecraft:geometry"][0].bones[3].cubes[0];
+    // sx = tile.width(128) / texture_size(128) = 1 → uv_size 64×64, within the atlas.
+    expect(cube.uv.north.uv_size).toEqual([64, 64]);
+    expect(cube.uv.north.uv).toEqual([0, 0]);
+    // Must stay inside the atlas, not 8× past it.
+    expect(cube.uv.north.uv[0] + cube.uv.north.uv_size[0]).toBeLessThanOrEqual(desc.texture_width);
+  });
+
   it("emits geometry, attachable, animations, atlas and mapping", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

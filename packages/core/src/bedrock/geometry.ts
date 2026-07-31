@@ -52,8 +52,15 @@ export function buildGeometry(
      * untouched.
      */
     flipFacing?: boolean;
+    /**
+     * The model's `texture_size` (UV authoring resolution). Face `uv`s are in
+     * this space, not a fixed 0–16 — HD models set e.g. [128,128]. Defaults to
+     * [16,16], so ordinary models are unaffected.
+     */
+    textureSize?: [number, number];
   },
 ): GeometryBuild {
+  const [texSizeU, texSizeV] = options?.textureSize ?? [16, 16];
   let usedUvRotation = false;
   const cubes: BedrockCube[] = [];
 
@@ -96,12 +103,16 @@ export function buildGeometry(
 
       // Default UVs derive from the unscaled element bounds (rescale moves
       // vertices, not texture coordinates).
-      const uv16 = face.uv ?? defaultUv(faceName, element.from, element.to);
-      // Java UV is 0–16 per texture; scale into the texture's own pixels, then
-      // offset by its tile position in the atlas.
-      const sx = placement.width / 16;
-      const sy = placement.height / 16;
-      let [u1, v1, u2, v2] = uv16;
+      // Explicit `uv` is in texture_size space; an omitted uv defaults to the
+      // element bounds in 0–16 block space (Java's auto-UV), so normalize each
+      // by the right divisor before mapping into the atlas tile's pixels.
+      const explicitUv = face.uv;
+      const uvRaw = explicitUv ?? defaultUv(faceName, element.from, element.to);
+      const divU = explicitUv !== undefined ? texSizeU : 16;
+      const divV = explicitUv !== undefined ? texSizeV : 16;
+      const sx = placement.width / divU;
+      const sy = placement.height / divV;
+      let [u1, v1, u2, v2] = uvRaw;
       const bedrockUv: BedrockFaceUv & { uv_rotation?: number } = {
         uv: [placement.x + u1 * sx, placement.y + v1 * sy],
         uv_size: [(u2 - u1) * sx, (v2 - v1) * sy],

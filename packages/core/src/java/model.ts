@@ -8,6 +8,12 @@ export interface JavaModel {
   display?: Partial<Record<JavaDisplayContext, JavaDisplayTransform>>;
   ambientocclusion?: boolean;
   gui_light?: "front" | "side";
+  /**
+   * Resolution the element `uv` coordinates are authored against (default
+   * [16, 16]). HD models set e.g. [128, 128]; every face `uv` is then in 0–128
+   * space, not 0–16, so it must be normalized by this, not by a hardcoded 16.
+   */
+  texture_size?: [number, number];
 }
 
 export interface JavaElement {

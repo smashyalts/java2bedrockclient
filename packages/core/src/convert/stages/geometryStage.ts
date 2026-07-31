@@ -320,7 +320,7 @@ function convertModel(
       elements,
       faceTexture,
       { width: atlas.image.width, height: atlas.image.height },
-      { flipFacing },
+      { flipFacing, textureSize: resolved.textureSize },
     ),
   );
   timeOp("json.write", () =>
@@ -582,6 +582,8 @@ function pickIcon(
         return { image: tex, uv: face.uv ?? defaultUv(faceName, element.from, element.to) };
       },
       resolved.display["gui"],
+      64,
+      resolved.textureSize ?? [16, 16],
     );
   }
 

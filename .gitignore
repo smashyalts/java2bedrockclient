@@ -7,3 +7,7 @@ coverage/
 java2bedrockclient.zip
 desktop.ini
 *.zip
+
+# Large local archives (server dumps, packs)
+*.tar.gz
+*.tgz
