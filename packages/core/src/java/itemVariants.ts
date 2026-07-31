@@ -59,52 +59,80 @@ export function extractLegacyVariants(
       for (const override of model.overrides) {
         const predicate = override.predicate ?? {};
         const cmd = predicate["custom_model_data"];
-        if (cmd === undefined) {
-          out.unsupported.push({
-            origin: `${path} → ${override.model}`,
-            reason: `override predicate without custom_model_data (${Object.keys(predicate).join(", ") || "empty"}) — vanilla-behavior retexture, not mappable statically`,
+        const extraPredicates = legacyOverridePredicates(predicate, `${path} → ${override.model}`, out);
+
+        if (cmd !== undefined) {
+          out.variants.push({
+            baseItem,
+            model: override.model,
+            source: { kind: "legacy", customModelData: cmd },
+            predicates: extraPredicates,
+            origin: path,
           });
           continue;
         }
-        const extraPredicates: VariantPredicate[] = [];
-        // charged/firework combine into one Geyser charge_type match.
-        const charged = predicate["charged"];
-        const firework = predicate["firework"];
-        if (firework !== undefined && firework !== 0) {
-          extraPredicates.push({ type: "match", property: "charge_type", value: "rocket" });
-        } else if (charged !== undefined) {
-          extraPredicates.push({
-            type: "match",
-            property: "charge_type",
-            value: charged !== 0 ? "arrow" : "none",
+
+        // No custom_model_data. If the override still carries a Geyser-mappable
+        // predicate (damaged/broken/damage/cast), it's a vanilla-behavior
+        // retexture (e.g. a damaged-elytra skin) that Geyser CAN express as a
+        // v2 definition keyed on the vanilla item's own item_model plus that
+        // predicate. Only vanilla items have a stable item_model to key on.
+        if (extraPredicates.length > 0 && baseItem !== undefined) {
+          out.variants.push({
+            baseItem,
+            model: override.model,
+            source: { kind: "modern", itemModelId: baseItem },
+            predicates: extraPredicates,
+            origin: path,
+          });
+        } else {
+          out.unsupported.push({
+            origin: `${path} → ${override.model}`,
+            reason: `override predicate without custom_model_data or a mappable predicate (${Object.keys(predicate).join(", ") || "empty"}) — vanilla-behavior retexture, not mappable statically`,
           });
         }
-        for (const [key, value] of Object.entries(predicate)) {
-          if (key === "custom_model_data" || key === "charged" || key === "firework") continue;
-          if (key === "damaged" || key === "broken") {
-            extraPredicates.push({ type: "condition", property: key, expected: value !== 0 });
-          } else if (key === "damage") {
-            extraPredicates.push({ type: "range_dispatch", property: "damage", threshold: value, normalize: true });
-          } else if (key === "cast") {
-            extraPredicates.push({ type: "condition", property: "fishing_rod_cast", expected: value !== 0 });
-          } else {
-            out.unsupported.push({
-              origin: `${path} → ${override.model}`,
-              reason: `unsupported extra predicate "${key}" ignored`,
-            });
-          }
-        }
-        out.variants.push({
-          baseItem,
-          model: override.model,
-          source: { kind: "legacy", customModelData: cmd },
-          predicates: extraPredicates,
-          origin: path,
-        });
       }
     }
   }
   return out;
+}
+
+/**
+ * Translate a legacy override predicate's non-cmd keys into Geyser v2
+ * predicates. charged/firework fold into one charge_type match;
+ * damaged/broken/damage/cast map to their Geyser equivalents; anything else is
+ * reported and dropped. custom_model_data itself is handled by the caller.
+ */
+function legacyOverridePredicates(
+  predicate: Record<string, number>,
+  origin: string,
+  out: VariantExtraction,
+): VariantPredicate[] {
+  const extraPredicates: VariantPredicate[] = [];
+  const charged = predicate["charged"];
+  const firework = predicate["firework"];
+  if (firework !== undefined && firework !== 0) {
+    extraPredicates.push({ type: "match", property: "charge_type", value: "rocket" });
+  } else if (charged !== undefined) {
+    extraPredicates.push({
+      type: "match",
+      property: "charge_type",
+      value: charged !== 0 ? "arrow" : "none",
+    });
+  }
+  for (const [key, value] of Object.entries(predicate)) {
+    if (key === "custom_model_data" || key === "charged" || key === "firework") continue;
+    if (key === "damaged" || key === "broken") {
+      extraPredicates.push({ type: "condition", property: key, expected: value !== 0 });
+    } else if (key === "damage") {
+      extraPredicates.push({ type: "range_dispatch", property: "damage", threshold: value, normalize: true });
+    } else if (key === "cast") {
+      extraPredicates.push({ type: "condition", property: "fishing_rod_cast", expected: value !== 0 });
+    } else {
+      out.unsupported.push({ origin, reason: `unsupported extra predicate "${key}" ignored` });
+    }
+  }
+  return extraPredicates;
 }
 
 /* ---------- Modern (1.21.4+) items/*.json definitions ---------- */

@@ -219,6 +219,12 @@ export interface ConversionContext {
    * parent chain is walked at most once per model id.
    */
   inferredHostItems: Map<string, string | undefined>;
+  /**
+   * Cache for {@link resolveModel} — a variant-heavy pack (dozens of cmd entries
+   * on one item) re-resolves the same model's parent chain repeatedly; memoize
+   * it per conversion.
+   */
+  resolvedModels: Map<string, import("../resolve/modelResolver.js").ResolvedModel | undefined>;
 }
 
 export interface PendingGeometry {

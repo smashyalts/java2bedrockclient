@@ -92,7 +92,7 @@ export const itemsStage: PipelineStage = {
 
 function convertVariant(ctx: ConversionContext, variant: ItemVariant, encodeJobs: EncodeJob[]): void {
   const origin = `${variant.origin} → ${variant.model}`;
-  const resolved = resolveModel(ctx.java, variant.model);
+  const resolved = resolveModel(ctx.java, variant.model, ctx.resolvedModels);
   if (resolved === undefined) {
     ctx.report.skipped("items", origin, `model ${variant.model} not found in pack (vanilla or missing)`);
     return;

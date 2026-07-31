@@ -43,7 +43,18 @@ export function loadModel(pack: JavaPack, id: string): JavaModel | undefined {
  * Resolve a model's parent chain. Vanilla parents (not present in the pack)
  * terminate the chain and determine classification for models without elements.
  */
-export function resolveModel(pack: JavaPack, id: string): ResolvedModel | undefined {
+export function resolveModel(
+  pack: JavaPack,
+  id: string,
+  cache?: Map<string, ResolvedModel | undefined>,
+): ResolvedModel | undefined {
+  if (cache?.has(id) === true) return cache.get(id);
+  const result = resolveModelUncached(pack, id);
+  cache?.set(id, result);
+  return result;
+}
+
+function resolveModelUncached(pack: JavaPack, id: string): ResolvedModel | undefined {
   const chain: string[] = [];
   const models: JavaModel[] = [];
   let terminalParent: string | undefined;

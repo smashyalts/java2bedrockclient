@@ -336,31 +336,6 @@ export function tint(image: RgbaImage, rgb: number): void {
 }
 
 /**
- * Pad an image to a square power-of-two canvas (art centred, transparent
- * padding). Bedrock's item atlas produces black mipmap artifacts on
- * non-square / non-power-of-two textures.
- */
-export function padToSquarePow2(image: RgbaImage): RgbaImage {
-  const target = nextPow2(Math.max(image.width, image.height));
-  if (image.width === target && image.height === target) return image;
-  const out = createImage(target, target);
-  const dx = Math.floor((target - image.width) / 2);
-  const dy = Math.floor((target - image.height) / 2);
-  for (let y = 0; y < image.height; y++) {
-    const srcOff = y * image.width * 4;
-    const dstOff = ((dy + y) * target + dx) * 4;
-    out.data.set(image.data.subarray(srcOff, srcOff + image.width * 4), dstOff);
-  }
-  return out;
-}
-
-function nextPow2(n: number): number {
-  let p = 1;
-  while (p < n) p *= 2;
-  return p;
-}
-
-/**
  * Crop a vertical animation strip (flipbook) to its first frame.
  * Returns the image unchanged when it is not taller than wide.
  */

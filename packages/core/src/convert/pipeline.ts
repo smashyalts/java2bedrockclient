@@ -118,6 +118,7 @@ export async function convertPack(
     textureCache: new Map(),
     displayEntityMappings: [],
     inferredHostItems: new Map(),
+    resolvedModels: new Map(),
   };
   ctx.configZipProvided = opts.configZipProvided === true;
 

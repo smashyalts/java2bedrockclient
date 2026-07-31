@@ -213,6 +213,33 @@ describe("2D custom items", () => {
     expect(defs[1].predicate[0]).toMatchObject({ type: "condition", property: "damaged", expected: false });
   });
 
+  it("maps a legacy non-cmd predicate override (damaged) onto the vanilla item_model", async () => {
+    // A retexture of the damaged vanilla elytra: an override with a `damaged`
+    // predicate but no custom_model_data. Geyser can express this as a v2
+    // definition keyed on the vanilla item_model + the damaged predicate.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/minecraft/models/item/elytra.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "minecraft:item/elytra" },
+        overrides: [
+          { predicate: { damaged: 1 }, model: "custom:item/broken_elytra" },
+        ],
+      }),
+      "assets/custom/models/item/broken_elytra.json": JSON.stringify({
+        parent: "minecraft:item/generated",
+        textures: { layer0: "custom:item/broken_elytra" },
+      }),
+      "assets/custom/textures/item/broken_elytra.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Elytra" });
+    const defs = JSON.parse(result.geyserMappings!).items["minecraft:elytra"];
+    expect(defs).toHaveLength(1);
+    expect(defs[0]).toMatchObject({ type: "definition", model: "minecraft:elytra" });
+    expect(defs[0].predicate[0]).toMatchObject({ type: "condition", property: "damaged", expected: true });
+  });
+
   it("drops Geyser-unsupported condition properties, keeping the default branch", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
