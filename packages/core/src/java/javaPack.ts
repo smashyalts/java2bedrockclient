@@ -80,9 +80,17 @@ export class JavaPack {
   }
 
   readJson<T = unknown>(relPath: string): T | undefined {
+    // Memoize parses: the pack is read-only during conversion, and the same
+    // model/items JSON is read by several passes (bow-pull detection, variant
+    // extraction, parent-chain resolution). Callers must treat the result as
+    // immutable — it's shared across those readers.
+    if (this.jsonCache.has(relPath)) return this.jsonCache.get(relPath) as T | undefined;
     const text = this.readText(relPath);
-    return text !== undefined ? parseLenientJson<T>(text) : undefined;
+    const value = text !== undefined ? parseLenientJson<T>(text) : undefined;
+    this.jsonCache.set(relPath, value);
+    return value;
   }
+  private readonly jsonCache = new Map<string, unknown>();
 
   has(relPath: string): boolean {
     return this.vfs.has(this.root + relPath);

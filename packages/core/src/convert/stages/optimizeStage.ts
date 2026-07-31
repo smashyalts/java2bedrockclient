@@ -85,6 +85,10 @@ export const optimizeStage: PipelineStage = {
     // pool when injected (expensive: filter search + deflate). Chunked so at
     // most CHUNK decoded RGBA images are resident at once — unbounded decode
     // would blow browser memory on a texture-heavy pack.
+    // Losslessness caveat: decodePng quantizes >8-bit channels to 8-bit, so for
+    // the rare 16-bit source PNG the re-encode is visually lossless (Bedrock
+    // samples textures at 8-bit) but not bit-identical. 8-bit sources — the
+    // overwhelming majority — round-trip exactly.
     let reencoded = 0;
     const passthrough = ctx.bedrock
       .list({ suffix: ".png" })
