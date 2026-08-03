@@ -28,12 +28,33 @@ interface ModelConfig {
   binding_bones?: Record<string, string[]>;
 }
 
-export function buildModelEngineInput(vfs: VirtualFs): ModelEngineResult {
+/**
+ * Scan one or more uploaded bundles (the main pack VFS plus any plugin config
+ * zips) for `.bbmodel` blueprints. The blueprints and the resource pack often
+ * live in different uploads — the RP in the main slot, the ModelEngine folder
+ * in a config zip — so all sources are scanned and de-duplicated by model id.
+ */
+export function buildModelEngineInput(sources: VirtualFs | VirtualFs[]): ModelEngineResult {
   const result: ModelEngineResult = { files: new Map(), models: [], failed: [] };
-  const encoder = new TextEncoder();
   const usedIds = new Set<string>();
+  const seenSourcePaths = new Set<string>();
 
+  for (const vfs of Array.isArray(sources) ? sources : [sources]) {
+    scanVfs(vfs, result, usedIds, seenSourcePaths);
+  }
+  return result;
+}
+
+function scanVfs(
+  vfs: VirtualFs,
+  result: ModelEngineResult,
+  usedIds: Set<string>,
+  seenSourcePaths: Set<string>,
+): void {
+  const encoder = new TextEncoder();
   for (const path of vfs.list({ suffix: ".bbmodel" })) {
+    if (seenSourcePaths.has(path)) continue;
+    seenSourcePaths.add(path);
     const text = vfs.readText(path);
     if (text === undefined) continue;
     const model = parseLenientJson<BbModel>(text);
@@ -96,8 +117,6 @@ export function buildModelEngineInput(vfs: VirtualFs): ModelEngineResult {
       animations: animations !== undefined ? Object.keys(animations.animations).length : 0,
     });
   }
-
-  return result;
 }
 
 function baseName(path: string): string {

@@ -90,6 +90,13 @@ export interface ConvertOptions {
    * worker / API when config zips are present; used to suppress the nudge.
    */
   configZipProvided?: boolean;
+  /**
+   * Raw plugin config zip bytes (Nexo/Oraxen/ModelEngine folders). Scanned for
+   * `.bbmodel` blueprints so ModelEngine mob models convert even when the
+   * blueprints live in a config upload rather than the main resource pack.
+   * (Base-item/name hints are parsed separately via parseOraxenConfigZips.)
+   */
+  pluginConfigZips?: Uint8Array[];
 }
 
 /** A batch RGBA→PNG encoder; implemented in the web app as a worker pool. */

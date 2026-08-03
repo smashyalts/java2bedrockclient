@@ -181,8 +181,17 @@ export async function convertPack(
   }
 
   // ModelEngine / MythicMobs: convert any .bbmodel blueprints in the upload to
-  // the GeyserModelEngine input bundle.
-  const meResult = buildModelEngineInput(inputVfs);
+  // the GeyserModelEngine input bundle. Scan the main pack AND any plugin config
+  // zips (blueprints often ship in the ModelEngine plugin folder, not the RP).
+  const meSources = [inputVfs];
+  for (const zip of options?.pluginConfigZips ?? []) {
+    try {
+      meSources.push(readZipDetailed(zip).vfs);
+    } catch {
+      // Unreadable config zip — main-pack scan still runs.
+    }
+  }
+  const meResult = buildModelEngineInput(meSources);
   let modelEngineInput: Uint8Array | undefined;
   if (meResult.models.length > 0) {
     const meVfs = new VirtualFs();

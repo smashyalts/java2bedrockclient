@@ -37,6 +37,9 @@ const api: WorkerApi = {
         furnitureItems: hints.furniture,
         furnitureTransforms: hints.furnitureTransforms,
         configZipProvided: true,
+        // Scanned for .bbmodel ModelEngine blueprints (kept raw; hints above are
+        // the parsed form). Copy so the transfer of `bytes` below can't neuter them.
+        pluginConfigZips: configZips.map((z) => z.slice()),
       };
       hintCount = hints.items;
     }
