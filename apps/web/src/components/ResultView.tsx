@@ -90,6 +90,14 @@ export function ResultView({
               ⬇ furniture config.yml (seats furniture)
             </button>
           )}
+          {result.modelEngineInput !== undefined && (
+            <button
+              style={{ ...buttonStyle, background: "var(--panel)", color: "var(--accent)", border: "1px solid var(--accent)" }}
+              onClick={() => download("modelengine_input.zip", result.modelEngineInput!, "application/zip")}
+            >
+              ⬇ ModelEngine models (input.zip)
+            </button>
+          )}
           <button
             style={{ ...buttonStyle, background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)" }}
             onClick={() =>
@@ -135,6 +143,23 @@ export function ResultView({
                   floats about a block above where it's placed.
                 </>
               )}
+            </>
+          )}
+          {result.modelEngineInput !== undefined && (
+            <>
+              {" "}ModelEngine/MythicMobs mob models need the{" "}
+              <a
+                href="https://github.com/GeyserExtensionists/GeyserModelEngine"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "var(--accent)" }}
+              >
+                GeyserModelEngine
+              </a>{" "}
+              extension (+ its Spigot plugin & GeyserUtils): unzip{" "}
+              <code>modelengine_input.zip</code> into{" "}
+              <code>extensions/geysermodelengineextension/input/</code> and reload Geyser to
+              generate the pack.
             </>
           )}
         </p>

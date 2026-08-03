@@ -24,6 +24,7 @@ import { paintingsStage } from "./stages/paintingsStage.js";
 import { blocksStage } from "./stages/blocksStage.js";
 import { packagingStage } from "./stages/packagingStage.js";
 import { optimizeStage } from "./stages/optimizeStage.js";
+import { buildModelEngineInput } from "../modelengine/modelEngineInput.js";
 
 export interface ConvertResult {
   /** Bedrock resource pack (.mcpack = zip). */
@@ -44,6 +45,13 @@ export interface ConvertResult {
    * without it, furniture on those items shows for a frame then vanishes.
    */
   displayEntityConfig: string | undefined;
+  /**
+   * GeyserModelEngine `input/` bundle (zip) — the per-model folders (Bedrock
+   * geometry + animations + textures + config.json) built from any `.bbmodel`
+   * ModelEngine/MythicMobs blueprints in the upload. Undefined when none found.
+   * Unzip into `extensions/geysermodelengineextension/input/` and reload Geyser.
+   */
+  modelEngineInput: Uint8Array | undefined;
   report: ReturnType<ConversionReport["toJSON"]>;
   /** Per-stage and hot-op timing breakdown for performance analysis. */
   timings: ReturnType<Timings["toJSON"]>;
@@ -172,6 +180,25 @@ export async function convertPack(
     );
   }
 
+  // ModelEngine / MythicMobs: convert any .bbmodel blueprints in the upload to
+  // the GeyserModelEngine input bundle.
+  const meResult = buildModelEngineInput(inputVfs);
+  let modelEngineInput: Uint8Array | undefined;
+  if (meResult.models.length > 0) {
+    const meVfs = new VirtualFs();
+    for (const [path, bytes] of meResult.files) meVfs.write(path, bytes);
+    modelEngineInput = writeZip(meVfs);
+    ctx.report.converted(
+      "modelengine",
+      `${meResult.models.length} ModelEngine model(s) from .bbmodel blueprints`,
+      [
+        "modelengine_input.zip — unzip into extensions/geysermodelengineextension/input/ (needs the GeyserModelEngine extension + plugin)",
+        ...meResult.models.map((m) => `${m.id}: ${m.textures} texture(s), ${m.animations} animation(s)`),
+      ],
+    );
+  }
+  for (const f of meResult.failed) ctx.report.skipped("modelengine", f.source, f.reason);
+
   const hasMappings = Object.keys(ctx.geyserMappings.items).length > 0;
   const hasBlocks = Object.keys(ctx.geyserBlocks).length > 0;
   const zipStart = now();
@@ -191,6 +218,7 @@ export async function convertPack(
       ctx.displayEntityMappings.length > 0
         ? buildDisplayEntityConfig(new Set(ctx.displayEntityMappings.map((e) => e.type)))
         : undefined,
+    modelEngineInput,
     report: ctx.report.toJSON(),
     timings: timings.toJSON(),
   };
