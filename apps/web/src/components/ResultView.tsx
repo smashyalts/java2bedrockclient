@@ -165,6 +165,8 @@ export function ResultView({
         </p>
       </div>
 
+      <RequiredPlugins result={result} />
+
       <ConfigNudgeBanner entries={result.report.entries} onReset={onReset} />
 
       <PerfPanel timings={result.timings} />
@@ -291,6 +293,68 @@ function PerfBar({ label, ms, total }: { label: string; ms: number; total: numbe
       <div style={{ height: 4, background: "var(--bg)", borderRadius: 2, marginTop: 2 }}>
         <div style={{ height: 4, width: `${pct}%`, background: "var(--accent)", borderRadius: 2 }} />
       </div>
+    </div>
+  );
+}
+
+/** The Geyser plugins/extensions needed to actually use the converted output,
+ * shown conditionally on what the conversion produced. */
+function RequiredPlugins({ result }: { result: ConvertResult }) {
+  const plugins: { name: string; url: string; note: string }[] = [
+    { name: "Geyser", url: "https://geysermc.org/download?project=geyser", note: "lets Bedrock players join; loads the .mcpack + mappings" },
+    { name: "Floodgate", url: "https://geysermc.org/download?project=floodgate", note: "Bedrock auth (no Java account needed)" },
+  ];
+  if (result.displayEntityMappings !== undefined) {
+    plugins.push({
+      name: "GeyserDisplayEntity",
+      url: "https://github.com/GeyserExtensionists/GeyserDisplayEntity",
+      note: "renders furniture / placed display-entity items on Bedrock",
+    });
+  }
+  if (result.modelEngineInput !== undefined) {
+    plugins.push(
+      {
+        name: "GeyserModelEngine (extension + Spigot plugin)",
+        url: "https://github.com/GeyserExtensionists/GeyserModelEngine",
+        note: "renders ModelEngine / MythicMobs mob models on Bedrock (generates the pack from input.zip)",
+      },
+      {
+        name: "GeyserUtils",
+        url: "https://github.com/GeyserExtensionists/GeyserUtils",
+        note: "required by GeyserModelEngine to call Bedrock-side features",
+      },
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: "var(--panel)",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        padding: 16,
+        marginTop: 16,
+      }}
+    >
+      <strong style={{ fontSize: 14 }}>Required plugins &amp; extensions</strong>
+      <p style={{ color: "var(--muted)", fontSize: 12, margin: "4px 0 10px" }}>
+        Install these on your server so Bedrock players see the converted content.
+      </p>
+      <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
+        {plugins.map((p) => (
+          <li key={p.name} style={{ fontSize: 13 }}>
+            <a
+              href={p.url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "var(--accent)", fontWeight: 600 }}
+            >
+              {p.name}
+            </a>
+            <span style={{ color: "var(--muted)" }}> — {p.note}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
