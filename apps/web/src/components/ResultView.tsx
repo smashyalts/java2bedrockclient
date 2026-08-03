@@ -113,59 +113,11 @@ export function ResultView({
             Convert another
           </button>
         </div>
-        <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 0 }}>
-          Geyser setup: put the <code>.mcpack</code> in Geyser's <code>packs/</code> folder
-          {result.geyserMappings !== undefined && (
-            <> and the mapping json files in <code>custom_mappings/</code></>
-          )}
-          , then restart.
-          {result.geyserBlockMappings !== undefined && (
-            <> Custom blocks also need <code>enable-custom-content: true</code> in Geyser's config.</>
-          )}
-          {result.displayEntityMappings !== undefined && (
-            <>
-              {" "}Furniture needs the{" "}
-              <a
-                href="https://github.com/GeyserExtensionists/GeyserDisplayEntity"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "var(--accent)" }}
-              >
-                GeyserDisplayEntity
-              </a>{" "}
-              extension: drop its jar in Geyser's <code>extensions/</code> folder and put the
-              furniture mappings yml in <code>extensions/geyserdisplayentity/Mappings/</code>.
-              {result.displayEntityConfig !== undefined && (
-                <>
-                  {" "}<strong>You must also</strong> drop the furniture <code>config.yml</code> in{" "}
-                  <code>extensions/geyserdisplayentity/</code> and restart — its global
-                  y-offset/height are what seat furniture on the floor. Without it, furniture
-                  floats about a block above where it's placed.
-                </>
-              )}
-            </>
-          )}
-          {result.modelEngineInput !== undefined && (
-            <>
-              {" "}ModelEngine/MythicMobs mob models need the{" "}
-              <a
-                href="https://github.com/GeyserExtensionists/GeyserModelEngine"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "var(--accent)" }}
-              >
-                GeyserModelEngine
-              </a>{" "}
-              extension (+ its Spigot plugin & GeyserUtils): unzip{" "}
-              <code>modelengine_input.zip</code> into{" "}
-              <code>extensions/geysermodelengineextension/input/</code> and reload Geyser to
-              generate the pack.
-            </>
-          )}
-        </p>
       </div>
 
       <RequiredPlugins result={result} />
+
+      <SetupGuide result={result} />
 
       <ConfigNudgeBanner entries={result.report.entries} onReset={onReset} />
 
@@ -355,6 +307,75 @@ function RequiredPlugins({ result }: { result: ConvertResult }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** Step-by-step install guide for the converted output, per artifact type. */
+function SetupGuide({ result }: { result: ConvertResult }) {
+  const code = (t: string) => <code style={{ background: "var(--bg)", padding: "1px 4px", borderRadius: 4 }}>{t}</code>;
+  const sections: { title: string; steps: React.ReactNode[] }[] = [];
+
+  // 1. Base pack — always.
+  const baseSteps: React.ReactNode[] = [
+    <>Install <b>Geyser</b> and <b>Floodgate</b> on your server (or proxy).</>,
+    <>Drop the <b>.mcpack</b> into Geyser's {code("packs/")} folder.</>,
+  ];
+  if (result.geyserMappings !== undefined || result.geyserBlockMappings !== undefined) {
+    baseSteps.push(
+      <>Put the mapping json ({[result.geyserMappings && "geyser_mappings.json", result.geyserBlockMappings && "geyser_blocks.json"].filter(Boolean).join(", ")}) into Geyser's {code("custom_mappings/")} folder.</>,
+    );
+  }
+  if (result.geyserBlockMappings !== undefined) {
+    baseSteps.push(<>Set {code("enable-custom-content: true")} in Geyser's {code("config.yml")} (needed for custom blocks).</>);
+  }
+  baseSteps.push(<>Restart Geyser. Bedrock players now see the custom items/textures.</>);
+  sections.push({ title: "1. Resource pack + Geyser", steps: baseSteps });
+
+  // 2. Furniture.
+  if (result.displayEntityMappings !== undefined) {
+    const f: React.ReactNode[] = [
+      <>Download the <b>GeyserDisplayEntity</b> extension jar and drop it in Geyser's {code("extensions/")} folder. Restart once so it creates its folders.</>,
+      <>Put {code("geyser_displayentity_mappings.yml")} in {code("extensions/geyserdisplayentity/Mappings/")}.</>,
+    ];
+    if (result.displayEntityConfig !== undefined) {
+      f.push(<>Put {code("geyserdisplayentity_config.yml")} in {code("extensions/geyserdisplayentity/")} (back up your own first). <b>Required</b> — its global y-offset/height seat furniture on the floor; without it pieces float ~1 block up.</>);
+    }
+    f.push(<>Restart Geyser. Furniture your Nexo/Oraxen/ItemsAdder plugin places now renders for Bedrock.</>);
+    sections.push({ title: "2. Furniture (GeyserDisplayEntity)", steps: f });
+  }
+
+  // 3. ModelEngine mobs.
+  if (result.modelEngineInput !== undefined) {
+    const n = result.displayEntityMappings !== undefined ? 3 : 2;
+    sections.push({
+      title: `${n}. ModelEngine / MythicMobs mobs (GeyserModelEngine)`,
+      steps: [
+        <>Server plugins: keep your <b>ModelEngine</b> + <b>MythicMobs</b>, and add <b>GeyserModelEngine</b> (Spigot) and <b>GeyserUtils</b> (spigot).</>,
+        <>Geyser extensions: put <b>GeyserModelEngineExtension</b> and <b>geyserutils-geyser</b> in Geyser's {code("extensions/")} folder.</>,
+        <>If you run a proxy (Velocity/Bungee), set {code("send-floodgate-data: true")} in Floodgate and copy {code("key.pem")} to the backend servers.</>,
+        <>Start the server once so the extension creates its folders, then unzip {code("modelengine_input.zip")} into {code("extensions/geysermodelengineextension/input/")} (each model keeps its own subfolder — the zip is already laid out this way).</>,
+        <>Reload Geyser (or restart). The extension generates the Bedrock pack from {code("input/")} and applies it automatically — no manual pack install.</>,
+        <>Spawn a mob via MythicMobs/MCPets as usual; Bedrock players now see the model.</>,
+      ],
+    });
+  }
+
+  return (
+    <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginTop: 16 }}>
+      <strong style={{ fontSize: 14 }}>Setup guide</strong>
+      <div style={{ display: "grid", gap: 14, marginTop: 10 }}>
+        {sections.map((s) => (
+          <div key={s.title}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{s.title}</div>
+            <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4, color: "var(--muted)", fontSize: 13 }}>
+              {s.steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
