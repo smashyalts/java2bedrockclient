@@ -118,12 +118,28 @@ function collectTemplates(zipBytes: Uint8Array, templates: Map<string, Record<st
       continue;
     }
     if (doc === null || typeof doc !== "object" || Array.isArray(doc)) continue;
-    for (const [key, value] of Object.entries(doc as Record<string, unknown>)) {
+    const root = doc as Record<string, unknown>;
+    const add = (key: string, value: unknown): void => {
       if (value !== null && typeof value === "object" && !Array.isArray(value)) {
         templates.set(key.toLowerCase(), value as Record<string, unknown>);
       }
+    };
+    for (const [key, value] of Object.entries(root)) add(key, value);
+    // ItemsAdder nests item/template definitions under an `items:` section, and
+    // references templates with `variant_of` (see resolveTemplate).
+    const items = root["items"];
+    if (items !== null && typeof items === "object" && !Array.isArray(items)) {
+      for (const [key, value] of Object.entries(items as Record<string, unknown>)) add(key, value);
     }
   }
+}
+
+/** The template a Nexo (`template`) or ItemsAdder (`variant_of`) item inherits. */
+function templateRef(obj: Record<string, unknown>): string | undefined {
+  const t = obj["template"];
+  if (typeof t === "string") return t;
+  const v = obj["variant_of"];
+  return typeof v === "string" ? v : undefined;
 }
 
 /**
@@ -139,23 +155,24 @@ function resolveTemplate(
 ): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
   let obj = value as Record<string, unknown>;
-  if (obj["template"] === undefined) return substitutePlaceholders(obj, key);
+  let ref = templateRef(obj);
+  if (ref === undefined) return substitutePlaceholders(obj, key);
 
   const chain: Record<string, unknown>[] = [];
   const seen = new Set<string>();
-  let current: unknown = obj["template"];
-  while (typeof current === "string" && !seen.has(current.toLowerCase())) {
-    seen.add(current.toLowerCase());
-    const tmpl = templates.get(current.toLowerCase());
+  while (ref !== undefined && !seen.has(ref.toLowerCase())) {
+    seen.add(ref.toLowerCase());
+    const tmpl = templates.get(ref.toLowerCase());
     if (tmpl === undefined) break;
     chain.push(tmpl);
-    current = tmpl["template"];
+    ref = templateRef(tmpl);
   }
   // Merge templates root-first (deepest default), then the item on top.
   let merged: Record<string, unknown> = {};
   for (const t of chain.reverse()) merged = deepMerge(merged, t);
   merged = deepMerge(merged, obj);
   delete merged["template"];
+  delete merged["variant_of"];
   obj = merged;
   return substitutePlaceholders(obj, key);
 }
@@ -217,34 +234,46 @@ function parseOne(
 
     let found = 0;
     const register = (key: string, value: unknown): void => {
+      // Skip pure template definitions (ItemsAdder marks them `template: true`).
+      if (value !== null && typeof value === "object" && (value as Record<string, unknown>)["template"] === true) {
+        return;
+      }
+      // Material is optional: ItemsAdder 1.21.4+ items declare only an
+      // item_model and inherit their base item from ItemsAdder's default, so we
+      // still register their display name, furniture flag and model aliases
+      // (the base item falls back to the modern base item downstream).
       const material = extractMaterial(value);
-      if (material === undefined) return;
-      const base = `minecraft:${material.toLowerCase()}`;
+      const base = material !== undefined ? `minecraft:${material.toLowerCase()}` : undefined;
       const lowerKey = key.toLowerCase();
-      hints.baseItems[lowerKey] = base;
       const displayName = extractDisplayName(value);
+      const color = extractColor(value);
+      const aliases = extractModelAliases(value);
+      const isFurniture = extractIsFurniture(value);
+      const furnitureTransform = isFurniture ? extractFurnitureTransform(value) : undefined;
+
+      // Nothing identifying → not one of our item entries.
+      if (base === undefined && displayName === undefined && aliases.length === 0 && !isFurniture) return;
+      found++;
+
+      if (base !== undefined) hints.baseItems[lowerKey] = base;
       if (displayName !== undefined) hints.displayNames[lowerKey] = displayName;
       const equippable = extractEquippable(value);
       if (equippable !== undefined) hints.equippables[lowerKey] = equippable;
-      const color = extractColor(value);
       if (color !== undefined) hints.colors[lowerKey] = color;
       const cmd = extractCmd(value);
-      if (cmd !== undefined) {
+      if (cmd !== undefined && base !== undefined) {
         hints.cmdKeys[`${base}|${cmd}`] = lowerKey;
         // Resolve cmd-style backpack refs (HMCC "material + model-data" form).
         if (backpackSet.has(`${base}|${cmd}`)) backpackSet.add(lowerKey);
       }
-      found++;
-      const isFurniture = extractIsFurniture(value);
-      const furnitureTransform = isFurniture ? extractFurnitureTransform(value) : undefined;
       if (isFurniture) {
         furnitureSet.add(lowerKey);
         if (furnitureTransform !== undefined) hints.furnitureTransforms[lowerKey] = furnitureTransform;
       }
       // Model-id overrides (Oraxen Components.item_model / Pack.model,
-      // ItemsAdder resource.model_path) — register those names too.
-      for (const alias of extractModelAliases(value)) {
-        hints.baseItems[alias] = base;
+      // ItemsAdder item_model / resource.model_path) — register those names too.
+      for (const alias of aliases) {
+        if (base !== undefined) hints.baseItems[alias] = base;
         if (displayName !== undefined) hints.displayNames[alias] = displayName;
         if (isFurniture) {
           furnitureSet.add(alias);

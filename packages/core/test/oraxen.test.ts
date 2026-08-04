@@ -425,6 +425,46 @@ items:
     expect(hints.furniture).toContain("nm_blackberries_1");
   });
 
+  it("resolves ItemsAdder variant_of + item_model items without a material", () => {
+    // IA 1.21.4+ items live under `items:`, mark templates with `template: true`,
+    // reference them via `variant_of`, and declare no vanilla material (only an
+    // item_model). Names + furniture must still resolve; base item falls back.
+    const cfg = fixtureZip({
+      "core.yml": [
+        "info: { namespace: nogs }",
+        "items:",
+        "  planted_core:",
+        "    template: true",
+        "    behaviours:",
+        "      furniture:",
+        "        entity: ITEM_FRAME",
+        "  crop_core:",
+        "    template: true",
+      ].join("\n"),
+      "items.yml": [
+        "info: { namespace: nogs }",
+        "items:",
+        "  nm_blackberries:",
+        "    display_name: Blackberries",
+        "    item_model: nogs:crops/nm_blackberries",
+        "    variant_of: crop_core",
+        "  nm_blackberries_1:",
+        "    display_name: Planted Blackberries",
+        "    item_model: nogs:planted/nm_blackberries_1",
+        "    variant_of: planted_core",
+      ].join("\n"),
+    });
+    const hints = parseOraxenConfigZip(cfg);
+    // Names resolve for material-less IA items (by key and by item_model alias).
+    expect(hints.displayNames["nm_blackberries"]).toBe("Blackberries");
+    expect(hints.displayNames["crops/nm_blackberries"]).toBe("Blackberries");
+    // Planted item inherits the furniture behaviour from its variant_of template.
+    expect(hints.furniture).toContain("nm_blackberries_1");
+    expect(hints.furniture).toContain("planted/nm_blackberries_1");
+    // Pure `template: true` entries aren't registered as items.
+    expect(hints.displayNames["planted_core"]).toBeUndefined();
+  });
+
   it("parses custom-plugin (oxywire) configs: material, nested item-model, name, decimal color", () => {
     const YML = `
 FarmerHat:
