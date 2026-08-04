@@ -88,8 +88,13 @@ export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
   };
   const backpackSet = new Set<string>();
   const furnitureSet = new Set<string>();
+  // Pre-pass: collect every top-level entry across all zips so `template:`
+  // references (Nexo templates that carry the material/model, often in a
+  // separate core file) resolve regardless of file/zip order.
+  const templates = new Map<string, Record<string, unknown>>();
+  for (const zipBytes of zips) collectTemplates(zipBytes, templates);
   for (const zipBytes of zips) {
-    parseOne(zipBytes, hints, backpackSet, furnitureSet);
+    parseOne(zipBytes, hints, backpackSet, furnitureSet, templates);
   }
   // Resolve material+cmd backpack refs now that every item is known.
   for (const ref of backpackSet) {
@@ -100,11 +105,101 @@ export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
   return hints;
 }
 
+/** Collect every top-level yml entry (potential `template:` target) by key. */
+function collectTemplates(zipBytes: Uint8Array, templates: Map<string, Record<string, unknown>>): void {
+  const { vfs } = readZipDetailed(zipBytes);
+  for (const path of vfs.list({ suffix: ".yml" })) {
+    const text = vfs.readText(path);
+    if (text === undefined) continue;
+    let doc: unknown;
+    try {
+      doc = load(text);
+    } catch {
+      continue;
+    }
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc)) continue;
+    for (const [key, value] of Object.entries(doc as Record<string, unknown>)) {
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        templates.set(key.toLowerCase(), value as Record<string, unknown>);
+      }
+    }
+  }
+}
+
+/**
+ * Resolve a Nexo `template:` chain: deep-merge each referenced template's fields
+ * as defaults (the item's own fields win), then substitute the `<item_id>`
+ * placeholder (used in template model paths) with the item's key. Returns the
+ * value unchanged when it has no template.
+ */
+function resolveTemplate(
+  key: string,
+  value: unknown,
+  templates: Map<string, Record<string, unknown>>,
+): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  let obj = value as Record<string, unknown>;
+  if (obj["template"] === undefined) return substitutePlaceholders(obj, key);
+
+  const chain: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  let current: unknown = obj["template"];
+  while (typeof current === "string" && !seen.has(current.toLowerCase())) {
+    seen.add(current.toLowerCase());
+    const tmpl = templates.get(current.toLowerCase());
+    if (tmpl === undefined) break;
+    chain.push(tmpl);
+    current = tmpl["template"];
+  }
+  // Merge templates root-first (deepest default), then the item on top.
+  let merged: Record<string, unknown> = {};
+  for (const t of chain.reverse()) merged = deepMerge(merged, t);
+  merged = deepMerge(merged, obj);
+  delete merged["template"];
+  obj = merged;
+  return substitutePlaceholders(obj, key);
+}
+
+/** Deep-merge `over` onto `base` (objects merge recursively, scalars/arrays overwrite). */
+function deepMerge(
+  base: Record<string, unknown>,
+  over: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    const b = out[k];
+    if (
+      b !== null && typeof b === "object" && !Array.isArray(b) &&
+      v !== null && typeof v === "object" && !Array.isArray(v)
+    ) {
+      out[k] = deepMerge(b as Record<string, unknown>, v as Record<string, unknown>);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Replace the Nexo `<item_id>` placeholder with the item key in all strings. */
+function substitutePlaceholders(value: unknown, itemId: string): unknown {
+  if (typeof value === "string") return value.replace(/<item_id>/g, itemId);
+  if (Array.isArray(value)) return value.map((v) => substitutePlaceholders(v, itemId));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = substitutePlaceholders(v, itemId);
+    }
+    return out;
+  }
+  return value;
+}
+
 function parseOne(
   zipBytes: Uint8Array,
   hints: OraxenHints,
   backpackSet: Set<string>,
   furnitureSet: Set<string>,
+  templates: Map<string, Record<string, unknown>>,
 ): void {
   const { vfs } = readZipDetailed(zipBytes);
 
@@ -183,13 +278,13 @@ function parseOne(
     const iaItems = root["items"];
     if (iaItems !== null && typeof iaItems === "object" && !Array.isArray(iaItems)) {
       for (const [key, value] of Object.entries(iaItems as Record<string, unknown>)) {
-        register(key, value);
+        register(key, resolveTemplate(key, value, templates));
       }
     }
     // Oraxen/Nexo layout: items are top-level keys.
     for (const [key, value] of Object.entries(root)) {
       if (key === "items" || key === "info") continue;
-      register(key, value);
+      register(key, resolveTemplate(key, value, templates));
     }
 
     if (found > 0) {

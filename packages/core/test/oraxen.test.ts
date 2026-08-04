@@ -387,6 +387,44 @@ items:
     expect(mappings.items["minecraft:paper"]).toBeUndefined();
   });
 
+  it("resolves Nexo template inheritance and the <item_id> placeholder", () => {
+    // Template carries material + model (with <item_id>); items inherit via
+    // `template:` and only override the name. A second template marks planted
+    // variants as furniture. Both live in a separate file from the items.
+    const cfg = fixtureZip({
+      "items/core.yml": [
+        "crop_core:",
+        "  material: APPLE",
+        "  Pack:",
+        "    model: nogs:crops/<item_id>",
+        "planted_core:",
+        "  material: PAPER",
+        "  Mechanics:",
+        "    furniture:",
+        "      type: DISPLAY_ENTITY",
+        "  Pack:",
+        "    model: nogs:planted/<item_id>",
+      ].join("\n"),
+      "items/berries.yml": [
+        "nm_blackberries:",
+        "  itemname: Blackberries",
+        "  template: crop_core",
+        "nm_blackberries_1:",
+        "  itemname: Planted Blackberries",
+        "  template: planted_core",
+      ].join("\n"),
+    });
+    const hints = parseOraxenConfigZip(cfg);
+    // Item inherits material APPLE from its template.
+    expect(hints.baseItems["nm_blackberries"]).toBe("minecraft:apple");
+    // <item_id> substituted in the template model path → alias registered.
+    expect(hints.baseItems["crops/nm_blackberries"]).toBe("minecraft:apple");
+    expect(hints.displayNames["nm_blackberries"]).toBe("Blackberries");
+    // Planted variant inherits PAPER + furniture from its template.
+    expect(hints.baseItems["nm_blackberries_1"]).toBe("minecraft:paper");
+    expect(hints.furniture).toContain("nm_blackberries_1");
+  });
+
   it("parses custom-plugin (oxywire) configs: material, nested item-model, name, decimal color", () => {
     const YML = `
 FarmerHat:
