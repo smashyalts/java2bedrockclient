@@ -10,6 +10,7 @@ import { renderModelIcon } from "../../image/modelRender.js";
 import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
+import { frameTicks } from "../../java/mcmeta.js";
 import { fastHash } from "../../util/hash.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
@@ -106,10 +107,10 @@ function loadTextureUncached(ctx: ConversionContext, textureId: string): LoadedT
     });
   }
 
-  const baseTime = Math.max(1, meta.animation.frametime ?? 1);
+  const baseTime = frameTicks(meta.animation.frametime);
   const entries = (meta.animation.frames ?? strip.map((_, i) => i)).map((f) => {
     if (typeof f === "number") return { index: f, ticks: baseTime };
-    return { index: f.index, ticks: Math.max(1, f.time ?? baseTime) };
+    return { index: f.index, ticks: frameTicks(f.time ?? baseTime) };
   });
   if (entries.length === 0) return { frames: strip, frametime: baseTime };
 

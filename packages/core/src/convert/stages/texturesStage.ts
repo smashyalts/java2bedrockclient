@@ -1,5 +1,6 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { remapVanillaTexture } from "../../data/vanillaTextureMap.js";
+import { sanitizePng } from "../../image/png.js";
 
 /**
  * Real vanilla texture categories. Anything else directly under
@@ -39,7 +40,7 @@ export const texturesStage: PipelineStage = {
             // reference; copy the source so any path reference survives, and let
             // the optimizer's dead-file sweep drop the rest. No report noise —
             // the owning stage reports the real conversion.
-            const data = ctx.java.read(path);
+            const data = readTexture(ctx, path);
             if (data !== undefined) {
               ctx.bedrock.write(`textures/${path.slice("assets/minecraft/textures/".length)}`, data);
             }
@@ -53,7 +54,7 @@ export const texturesStage: PipelineStage = {
           }
           continue;
         }
-        const data = ctx.java.read(path);
+        const data = readTexture(ctx, path);
         if (data === undefined) continue;
         ctx.bedrock.write(remap.outputPath, data);
         if (remap.exact) {
@@ -76,7 +77,7 @@ export const texturesStage: PipelineStage = {
       if (match) {
         const [, ns, rest] = match;
         const out = `textures/${ns}/${rest}`;
-        const data = ctx.java.read(path);
+        const data = readTexture(ctx, path);
         if (data !== undefined) {
           ctx.bedrock.write(out, data);
           ctx.report.converted("textures", path, [out]);
@@ -86,3 +87,13 @@ export const texturesStage: PipelineStage = {
     ctx.progress("textures", paths.length, paths.length);
   },
 };
+
+/**
+ * Read a source texture, repairing it first when the pack ships PNGs with an
+ * invalid zlib checksum (ItemsAdder's exported packs do — Minecraft's loader
+ * ignores the checksum, stricter decoders don't).
+ */
+function readTexture(ctx: ConversionContext, path: string): Uint8Array | undefined {
+  const data = ctx.java.read(path);
+  return data === undefined ? undefined : sanitizePng(data);
+}

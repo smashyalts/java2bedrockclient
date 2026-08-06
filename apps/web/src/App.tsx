@@ -23,6 +23,9 @@ export function App() {
   const [oxipngLevel, setOxipngLevel] = useState(4);
   const [showOptions, setShowOptions] = useState(false);
   const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
+  // The pack is staged on drop, not converted — the user adds config zips and
+  // tweaks options first, then presses Convert.
+  const [packFile, setPackFile] = useState<File | null>(null);
   const workerRef = useRef<Remote<WorkerApi> | null>(null);
 
   const getWorker = useCallback((): Remote<WorkerApi> => {
@@ -35,7 +38,7 @@ export function App() {
     return workerRef.current;
   }, []);
 
-  const handleFile = useCallback(
+  const startConvert = useCallback(
     async (file: File) => {
       const packName = file.name.replace(/\.(zip|mcpack|tgz|tar\.gz)$/i, "");
       setPhase({ kind: "converting", stage: "reading file", done: 0, total: 1, fileName: file.name });
@@ -104,7 +107,7 @@ export function App() {
 
       {phase.kind === "idle" && (
         <>
-          <DropZone onFile={handleFile} />
+          <DropZone onFile={setPackFile} selected={packFile} />
 
           {/* Compression controls — surfaced (not buried under Advanced) since size is what most people tune. */}
           <div
@@ -273,6 +276,31 @@ export function App() {
                 </label>
               </div>
             )}
+          </div>
+
+          {/* Conversion only starts here — dropping a pack just stages it, so
+              config zips and options can be set before the (long) run. */}
+          <div style={{ textAlign: "center", marginTop: 24 }}>
+            <button
+              onClick={() => {
+                if (packFile !== null) void startConvert(packFile);
+              }}
+              disabled={packFile === null}
+              style={{
+                ...buttonStyle,
+                padding: "14px 36px",
+                fontSize: 17,
+                opacity: packFile === null ? 0.45 : 1,
+                cursor: packFile === null ? "not-allowed" : "pointer",
+              }}
+            >
+              Convert pack
+            </button>
+            <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
+              {packFile === null
+                ? "Add a resource pack above to get started."
+                : "Add any plugin config zips and set your options first — then convert."}
+            </div>
           </div>
         </>
       )}

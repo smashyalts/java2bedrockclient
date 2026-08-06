@@ -12,6 +12,7 @@ import { buildGeometry } from "../../bedrock/geometry.js";
 import { buildDisplayAnimations } from "../../bedrock/animations.js";
 import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
 import { parseLenientJson } from "../../java/json.js";
+import { frameTicks } from "../../java/mcmeta.js";
 import type { JavaElement } from "../../java/model.js";
 
 /** Sanitize a resource location into a safe identifier chunk. */
@@ -220,7 +221,7 @@ function readSpriteAnimation(
   // A flipbook strip is a vertical column of square frames.
   if (strip === undefined || strip.height <= strip.width) return undefined;
   const parsed = parseLenientJson<{ animation?: { frametime?: number } }>(meta);
-  return { strip, frametime: Math.max(1, parsed?.animation?.frametime ?? 1) };
+  return { strip, frametime: frameTicks(parsed?.animation?.frametime) };
 }
 
 /**

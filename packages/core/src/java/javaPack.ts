@@ -107,6 +107,34 @@ export class JavaPack {
   /** Resolve "ns:path" within a category, e.g. texture("minecraft:item/stick") → assets path. */
   assetPath(category: "textures" | "models" | "items" | "equipment", id: string, ext: string): string {
     const loc = parseResourceLocation(id);
-    return `assets/${loc.namespace}/${category}/${loc.path}${ext}`;
+    const path = `assets/${loc.namespace}/${category}/${loc.path}${ext}`;
+    if (category !== "textures" || this.vfs.has(this.root + path)) return path;
+    // Sprite aliases: an atlas may publish a texture under a different name
+    // (`{"type":"single","resource":"set:foo","sprite":"ia:12"}`), and models
+    // then reference the alias. ItemsAdder does this for every custom texture,
+    // so without this the whole pack resolves to missing textures.
+    const target = this.spriteAliases().get(`${loc.namespace}:${loc.path}`);
+    if (target === undefined) return path;
+    const alias = parseResourceLocation(target);
+    return `assets/${alias.namespace}/${category}/${alias.path}${ext}`;
   }
+
+  /** Sprite alias → real texture id, collected from every atlas in the pack. */
+  private spriteAliases(): Map<string, string> {
+    if (this.aliasCache !== undefined) return this.aliasCache;
+    const aliases = new Map<string, string>();
+    for (const path of this.list({ suffix: ".json" })) {
+      if (!/^assets\/[^/]+\/atlases\//.test(path)) continue;
+      const atlas = this.readJson<{ sources?: { type?: string; resource?: string; sprite?: string }[] }>(path);
+      for (const source of atlas?.sources ?? []) {
+        if (source.type !== "single" || source.resource === undefined) continue;
+        if (source.sprite === undefined || source.sprite === source.resource) continue;
+        const sprite = parseResourceLocation(source.sprite);
+        aliases.set(`${sprite.namespace}:${sprite.path}`, source.resource);
+      }
+    }
+    this.aliasCache = aliases;
+    return aliases;
+  }
+  private aliasCache: Map<string, string> | undefined;
 }

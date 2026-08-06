@@ -1,6 +1,6 @@
 import { decode } from "fast-png";
 import UPNG from "upng-js";
-import { zlibSync } from "fflate";
+import { unzlibSync, zlibSync } from "fflate";
 import { timeOp } from "../report/timings.js";
 
 /** Always 8-bit RGBA. */
@@ -25,13 +25,31 @@ export function decodeCached(
 ): RgbaImage | undefined {
   if (cache.has(path)) return cache.get(path);
   const bytes = read(path);
-  const result = bytes === undefined ? undefined : decodePng(bytes);
+  // A corrupt or non-PNG file is treated as a missing texture: callers already
+  // handle that path, and one bad file must not abort the whole stage.
+  let result: RgbaImage | undefined;
+  try {
+    result = bytes === undefined ? undefined : decodePng(bytes);
+  } catch {
+    result = undefined;
+  }
   cache.set(path, result);
   return result;
 }
 
 function decodePngUntimed(bytes: Uint8Array): RgbaImage {
-  const img = decode(bytes);
+  let img;
+  try {
+    img = decode(bytes);
+  } catch (err) {
+    // Packs shipped by ItemsAdder (and other "texture protection" tooling) carry
+    // PNGs whose IDAT zlib checksum is wrong. Minecraft's own loader ignores the
+    // checksum, so they look fine in Java — strict decoders refuse them. Rebuild
+    // the stream and retry rather than dropping the texture.
+    const repaired = repairPngStream(bytes);
+    if (repaired === undefined) throw err;
+    img = decode(repaired);
+  }
   const { width, height, depth, channels } = img;
   const out = new Uint8Array(width * height * 4);
   const palette = img.palette as number[][] | undefined;
@@ -91,6 +109,104 @@ function decodePngUntimed(bytes: Uint8Array): RgbaImage {
     out[i * 4 + 3] = a;
   }
   return { width, height, data: out };
+}
+
+/**
+ * Rebuild a PNG's IDAT stream so its zlib checksum is valid, leaving every other
+ * chunk untouched. `unzlibSync` inflates without verifying the trailing adler32,
+ * so a pack whose textures were written with a bogus checksum still decodes.
+ * Returns undefined when the file isn't a PNG or the deflate data is truly
+ * unrecoverable — callers then treat it as a broken texture.
+ */
+export function repairPngStream(bytes: Uint8Array): Uint8Array | undefined {
+  if (bytes.length < 8) return undefined;
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return undefined;
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const before: Uint8Array[] = [];
+  const after: Uint8Array[] = [];
+  const idat: Uint8Array[] = [];
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length) return undefined;
+    const type = String.fromCharCode(bytes[offset + 4]!, bytes[offset + 5]!, bytes[offset + 6]!, bytes[offset + 7]!);
+    if (type === "IDAT") idat.push(bytes.subarray(offset + 8, offset + 8 + length));
+    else (idat.length === 0 ? before : after).push(bytes.subarray(offset, end));
+    offset = end;
+    if (type === "IEND") break;
+  }
+  if (idat.length === 0) return undefined;
+
+  const stream = concat(idat);
+  let raw: Uint8Array;
+  try {
+    raw = unzlibSync(stream);
+  } catch {
+    return undefined;
+  }
+  const rebuilt = pngChunk("IDAT", zlibSync(raw, { level: 1 }));
+  return concat([PNG_SIGNATURE, ...before, rebuilt, ...after]);
+}
+
+/**
+ * Pass a PNG through unchanged unless its zlib checksum is invalid, in which
+ * case return a rebuilt copy. Textures copied byte-for-byte into the Bedrock
+ * pack go through here so a pack that only Minecraft's lenient loader accepts
+ * doesn't ship textures Bedrock may refuse.
+ */
+export function sanitizePng(bytes: Uint8Array): Uint8Array {
+  return pngChecksumValid(bytes) ? bytes : repairPngStream(bytes) ?? bytes;
+}
+
+function pngChecksumValid(bytes: Uint8Array): boolean {
+  if (bytes.length < 8) return true;
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return true;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const idat: Uint8Array[] = [];
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length) return true;
+    const type = String.fromCharCode(bytes[offset + 4]!, bytes[offset + 5]!, bytes[offset + 6]!, bytes[offset + 7]!);
+    if (type === "IDAT") idat.push(bytes.subarray(offset + 8, offset + 8 + length));
+    offset = end;
+    if (type === "IEND") break;
+  }
+  if (idat.length === 0) return true;
+  const stream = concat(idat);
+  if (stream.length < 6) return true;
+  try {
+    const raw = unzlibSync(stream);
+    const stored = new DataView(stream.buffer, stream.byteOffset, stream.byteLength).getUint32(stream.length - 4);
+    return stored === adler32(raw);
+  } catch {
+    return true; // Not repairable either — leave it to the decoder to report.
+  }
+}
+
+function adler32(bytes: Uint8Array): number {
+  let a = 1;
+  let b = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    a = (a + bytes[i]!) % 65521;
+    b = (b + a) % 65521;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
+const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function concat(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
 
 export function encodePng(image: RgbaImage): Uint8Array {

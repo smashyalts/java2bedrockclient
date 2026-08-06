@@ -4,7 +4,14 @@ import { useCallback, useRef, useState } from "react";
 const VALID_EXTENSIONS = [".zip", ".mcpack", ".tar.gz", ".tgz"];
 const MAX_FILE_SIZE = 512 * 1024 * 1024;
 
-export function DropZone({ onFile }: { onFile: (file: File) => void }) {
+export function DropZone({
+  onFile,
+  selected,
+}: {
+  onFile: (file: File) => void;
+  /** Currently staged pack, if any — selection doesn't start the conversion. */
+  selected?: File | null;
+}) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,21 +61,23 @@ export function DropZone({ onFile }: { onFile: (file: File) => void }) {
       }}
       onClick={() => inputRef.current?.click()}
       style={{
-        border: `2px dashed ${dragging ? "var(--accent)" : "var(--border)"}`,
+        border: `2px dashed ${dragging || selected ? "var(--accent)" : "var(--border)"}`,
         background: dragging ? "var(--accent-dim)" : "var(--panel)",
         borderRadius: 16,
-        padding: "80px 20px",
+        padding: selected ? "40px 20px" : "80px 20px",
         textAlign: "center",
         cursor: "pointer",
         transition: "all 0.15s ease",
       }}
     >
-      <div style={{ fontSize: 40, marginBottom: 12 }}>📦</div>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>{selected ? "✅" : "📦"}</div>
       <div style={{ fontSize: 18, fontWeight: 600 }}>
-        Drop your Java resource pack here
+        {selected ? selected.name : "Drop your Java resource pack here"}
       </div>
       <div style={{ color: "var(--muted)", marginTop: 6 }}>
-        .zip, .mcpack, or .tar.gz — or click to choose a file
+        {selected
+          ? `${(selected.size / 1024 / 1024).toFixed(1)} MB — click to choose a different file`
+          : ".zip, .mcpack, or .tar.gz — or click to choose a file"}
       </div>
       {error && (
         <div style={{ color: "var(--err)", marginTop: 12, fontSize: 13 }}>{error}</div>

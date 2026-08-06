@@ -1,6 +1,7 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { remapVanillaTexture } from "../../data/vanillaTextureMap.js";
 import { parseLenientJson } from "../../java/json.js";
+import { frameTicks } from "../../java/mcmeta.js";
 
 interface McmetaAnimation {
   animation?: {
@@ -35,7 +36,7 @@ export const flipbooksStage: PipelineStage = {
           const entry: Record<string, unknown> = {
             flipbook_texture: flipbookTexture,
             atlas_tile: atlasTile,
-            ticks_per_frame: anim.frametime ?? 1,
+            ticks_per_frame: frameTicks(anim.frametime),
           };
           if (anim.frames !== undefined) {
             entry["frames"] = anim.frames.map((f) => (typeof f === "number" ? f : f.index));
@@ -60,7 +61,7 @@ export const flipbooksStage: PipelineStage = {
       const entry: Record<string, unknown> = {
         flipbook_texture: remap.outputPath.slice(0, -".png".length),
         atlas_tile: atlasTile,
-        ticks_per_frame: anim.frametime ?? 1,
+        ticks_per_frame: frameTicks(anim.frametime),
       };
       if (anim.frames !== undefined) {
         // Bedrock frames are plain indices; per-frame times are not supported.
