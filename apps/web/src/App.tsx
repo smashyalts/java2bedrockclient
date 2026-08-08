@@ -331,8 +331,6 @@ export function App() {
         </div>
       )}
 
-      <Credits />
-
       <footer
         style={{
           textAlign: "center",
@@ -353,89 +351,18 @@ export function App() {
           support development on Ko-fi ☕
         </a>{" "}
         to help cover dev costs.
-      </footer>
-    </div>
-  );
-}
-
-/** Projects this converter builds on — collapsed so it never crowds the tool. */
-function Credits() {
-  const [open, setOpen] = useState(false);
-  const groups: { title: string; items: { name: string; url: string; note: string }[] }[] = [
-    {
-      title: "Makes the output work",
-      items: [
-        { name: "GeyserMC", url: "https://geysermc.org/", note: "Bedrock↔Java proxy; the custom items v2 / custom blocks mapping formats this tool emits" },
-        { name: "GeyserDisplayEntity", url: "https://github.com/GeyserExtensionists/GeyserDisplayEntity", note: "renders furniture on Bedrock — its mappings + config format" },
-        { name: "GeyserModelEngine", url: "https://github.com/GeyserExtensionists/GeyserModelEngine", note: "renders ModelEngine mobs — its input/ folder layout" },
-        { name: "GeyserUtils", url: "https://github.com/GeyserExtensionists/GeyserUtils", note: "Bedrock-side hooks GeyserModelEngine needs" },
-      ],
-    },
-    {
-      title: "Prior art & formats",
-      items: [
-        { name: "java2bedrock.sh", url: "https://github.com/Kas-tle/java2bedrock.sh", note: "by Kas-tle — the coordinate math, attachable bone chain and display-transform constants" },
-        { name: "GeyserMC Rainbow", url: "https://github.com/GeyserMC/Rainbow", note: "inspiration for the approach and output shape" },
-        { name: "PackConverter", url: "https://github.com/GeyserMC/PackConverter", note: "prior art for vanilla texture path mappings" },
-        { name: "wiki.bedrock.dev", url: "https://wiki.bedrock.dev/", note: "render controllers, attachables, glyph sheets" },
-        { name: "Blockbench", url: "https://www.blockbench.net/", note: ".bbmodel format converted into Bedrock geometry + animations" },
-        { name: "ModelEngine / MythicMobs", url: "https://mythiccraft.io/", note: "blueprint and mob-binding formats read for mob conversion" },
-        { name: "Oraxen · Nexo · ItemsAdder · HMCCosmetics", url: "https://docs.nexomc.com/", note: "config formats parsed for base items, names, furniture, cosmetics" },
-      ],
-    },
-    {
-      title: "Libraries",
-      items: [
-        { name: "fflate", url: "https://github.com/101arrowz/fflate", note: "zip + deflate" },
-        { name: "fast-png · UPNG.js", url: "https://github.com/image-js/fast-png", note: "PNG decode/encode" },
-        { name: "oxipng (@jsquash)", url: "https://github.com/shssoichiro/oxipng", note: "lossless max compression" },
-        { name: "Zopfli (@gfx/zopfli)", url: "https://github.com/google/zopfli", note: "lossless recompression" },
-        { name: "js-yaml · jsonc-parser · @noble/hashes", url: "https://github.com/nodeca/js-yaml", note: "config parsing + hashing" },
-        { name: "React · Vite · comlink · Vitest", url: "https://vitejs.dev/", note: "UI, build, workers, tests" },
-      ],
-    },
-  ];
-
-  return (
-    <div style={{ marginTop: 32 }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        style={{ background: "transparent", color: "var(--muted)", border: "none", cursor: "pointer", fontSize: 13 }}
-      >
-        {open ? "▾" : "▸"} Credits — projects this tool is built on
-      </button>
-      {open && (
-        <div
-          style={{
-            background: "var(--panel)",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            padding: 16,
-            marginTop: 8,
-            display: "grid",
-            gap: 14,
-          }}
-        >
-          {groups.map((g) => (
-            <div key={g.title}>
-              <strong style={{ fontSize: 13 }}>{g.title}</strong>
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18, display: "grid", gap: 4 }}>
-                {g.items.map((i) => (
-                  <li key={i.name} style={{ fontSize: 12.5 }}>
-                    <a href={i.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", fontWeight: 600 }}>
-                      {i.name}
-                    </a>
-                    <span style={{ color: "var(--muted)" }}> — {i.note}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-          <div style={{ color: "var(--muted)", fontSize: 12 }}>
-            GPL-3.0. Thanks to everyone above — this converter would not exist without their work.
-          </div>
+        <div style={{ marginTop: 8 }}>
+          <a
+            href="https://github.com/smashyalts/java2bedrockclient"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--accent)", fontWeight: 600 }}
+          >
+            Source on GitHub
+          </a>{" "}
+          — issues, contributions and credits for the projects this builds on.
         </div>
-      )}
+      </footer>
     </div>
   );
 }
