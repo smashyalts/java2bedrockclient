@@ -22,9 +22,15 @@ export interface ModelEngineResult {
   failed: { source: string; reason: string }[];
 }
 
+/**
+ * Mirrors the extension's `ModelConfig` (its `@SerializedName` values). GSON
+ * silently ignores keys it has no field for, so a wrong name doesn't fail — the
+ * option just never takes effect.
+ */
 interface ModelConfig {
   per_texture_uv_size: Record<string, [number, number]>;
-  anim_textures: Record<string, { frametime: number }>;
+  /** `AnimTextureOptions`: playback rate and how many frames the strip holds. */
+  anim_textures: Record<string, { fps: number; frames: number }>;
   binding_bones?: Record<string, string[]>;
 }
 
@@ -77,7 +83,7 @@ function scanVfs(
 
     const textures = extractTextures(model);
     const perTextureUvSize: Record<string, [number, number]> = {};
-    const animTextures: Record<string, { frametime: number }> = {};
+    const animTextures: Record<string, { fps: number; frames: number }> = {};
     const resW = model.resolution?.width && model.resolution.width > 0 ? model.resolution.width : 16;
     const resH = model.resolution?.height && model.resolution.height > 0 ? model.resolution.height : 16;
     for (const tex of textures) {
@@ -85,7 +91,13 @@ function scanVfs(
       // UVs are authored in the model's resolution space; tell the extension so
       // it doesn't fall back to a 16×16 assumption on HD textures.
       perTextureUvSize[tex.name] = [resW, resH];
-      if (tex.animated) animTextures[tex.name] = { frametime: tex.frameTime };
+      if (tex.animated) {
+        // Blockbench animated textures are a vertical strip of square frames,
+        // with frame_time in ticks — the extension wants frames per second and
+        // a frame count instead.
+        const frames = tex.width > 0 ? Math.max(1, Math.floor(tex.height / tex.width)) : 1;
+        animTextures[tex.name] = { fps: 20 / Math.max(1, tex.frameTime), frames };
+      }
     }
 
     // binding_bones: which bones each texture is applied to. Only emit when the

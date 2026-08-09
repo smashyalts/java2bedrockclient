@@ -107,3 +107,58 @@ describe("custom blocks", () => {
     expect(out.has("textures/geyser_custom/blocks/oraxen_block_small_pot.png")).toBe(true);
   });
 });
+
+/**
+ * Geyser rebuilds `<block>[<key>]` from each state_overrides key and looks it up
+ * in its Java block-state registry. The registry keys come from
+ * `BlockState.toString()`: every property of the block, in Geyser's declared
+ * order (alphabetical for the blocks plugins repurpose), values lowercased.
+ * A key that doesn't match is not in the registry, and Geyser discards the
+ * entire block entry — so the emitter has to canonicalise, not pass through.
+ */
+describe("Geyser block-state registry keys", () => {
+  it("reorders pack-written keys into Geyser's property order", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/blockstates/note_block.json": JSON.stringify({
+        // Nexo's ordering: note comes after powered, and the value is uppercase.
+        variants: {
+          "instrument=HAT,powered=false,note=3": { model: "nexo:block/ruby_block" },
+        },
+      }),
+      "assets/nexo/models/block/ruby_block.json": JSON.stringify({
+        parent: "minecraft:block/cube_all",
+        textures: { all: "nexo:block/ruby" },
+      }),
+      "assets/nexo/textures/block/ruby.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Blocks" });
+    const blocks = JSON.parse(result.geyserBlockMappings!);
+    const overrides = blocks.blocks["minecraft:note_block"].state_overrides;
+
+    expect(Object.keys(overrides)).toEqual(["instrument=hat,note=3,powered=false"]);
+  });
+
+  it("drops a partial key rather than emitting a state Geyser would reject", async () => {
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/blockstates/note_block.json": JSON.stringify({
+        // Only one of note_block's three properties — matches many states in
+        // Java, matches nothing in Geyser's registry.
+        variants: { "powered=true": { model: "nexo:block/ruby_block" } },
+      }),
+      "assets/nexo/models/block/ruby_block.json": JSON.stringify({
+        parent: "minecraft:block/cube_all",
+        textures: { all: "nexo:block/ruby" },
+      }),
+      "assets/nexo/textures/block/ruby.png": png(),
+    });
+
+    const result = await convertPack(zip, { packName: "Blocks" });
+    expect(result.geyserBlockMappings).toBeUndefined();
+    expect(
+      result.report.entries.some((e) => e.detail?.includes("doesn't name every note_block property")),
+    ).toBe(true);
+  });
+});

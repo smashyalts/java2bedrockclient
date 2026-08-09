@@ -29,18 +29,32 @@ const BLOCK_TEXTURE_PATH_RESERVED = "textures/geyser_custom/blocks/.png".length;
  * geometry + terrain_texture entries.
  */
 
-/** Vanilla blocks plugins repurpose for custom blocks. */
-const MECHANIC_BLOCKS = [
-  "note_block",
-  "tripwire",
-  "mushroom_stem",
-  "brown_mushroom_block",
-  "red_mushroom_block",
-  "cave_vines",
-  "cave_vines_plant",
-  "chorus_plant",
-  "sugar_cane",
-];
+/**
+ * Vanilla blocks plugins repurpose for custom blocks, with the full property
+ * set of each.
+ *
+ * Geyser resolves a `state_overrides` key by rebuilding `<block>[<key>]` and
+ * looking it up in its Java block-state registry, whose keys come from
+ * `BlockState.toString()` — every property of the block, in the order Geyser's
+ * `Blocks` table declares them (alphabetical for all of these), values
+ * lowercased. A key that is reordered, partial, or differently cased is simply
+ * not in the registry, and Geyser throws away the whole block entry.
+ *
+ * Resource-pack blockstate files are under no such constraint: Nexo writes
+ * `instrument=harp,powered=false,note=0` for note_block, which has to be
+ * reordered before it means anything to Geyser.
+ */
+const MECHANIC_BLOCKS: Record<string, string[]> = {
+  note_block: ["instrument", "note", "powered"],
+  tripwire: ["attached", "disarmed", "east", "north", "powered", "south", "west"],
+  mushroom_stem: ["down", "east", "north", "south", "up", "west"],
+  brown_mushroom_block: ["down", "east", "north", "south", "up", "west"],
+  red_mushroom_block: ["down", "east", "north", "south", "up", "west"],
+  cave_vines: ["age", "berries"],
+  cave_vines_plant: ["berries"],
+  chorus_plant: ["down", "east", "north", "south", "up", "west"],
+  sugar_cane: ["age"],
+};
 
 interface BlockstateVariant {
   model: string;
@@ -57,7 +71,7 @@ interface BlockstateFile {
 export const blocksStage: PipelineStage = {
   name: "blocks",
   run(ctx: ConversionContext): void {
-    for (const block of MECHANIC_BLOCKS) {
+    for (const [block, properties] of Object.entries(MECHANIC_BLOCKS)) {
       const path = `assets/minecraft/blockstates/${block}.json`;
       const state = ctx.java.readJson<BlockstateFile>(path);
       if (state === undefined) continue;
@@ -68,7 +82,7 @@ export const blocksStage: PipelineStage = {
         continue;
       }
       try {
-        convertBlockstates(ctx, block, path, state.variants);
+        convertBlockstates(ctx, block, path, state.variants, properties);
       } catch (err) {
         ctx.report.error("blocks", path, err instanceof Error ? err.message : String(err));
       }
@@ -81,6 +95,7 @@ function convertBlockstates(
   block: string,
   path: string,
   variants: NonNullable<BlockstateFile["variants"]>,
+  properties: string[],
 ): void {
   const overrides: Record<string, Partial<GeyserBlockDefinition>> = {};
   let base: GeyserBlockDefinition | undefined;
@@ -109,7 +124,16 @@ function convertBlockstates(
     if (rx !== 0 || ry !== 0) {
       (def as Record<string, unknown>)["transformation"] = { rotation: [rx, ry, 0] };
     }
-    overrides[normalizeStateKey(stateKey)] = def;
+    const geyserStateKey = normalizeStateKey(stateKey, properties);
+    if (geyserStateKey === undefined) {
+      ctx.report.skipped(
+        "blocks",
+        `${path} [${stateKey}]`,
+        `blockstate key doesn't name every ${block} property (${properties.join(", ")}) — Geyser looks the full state up in its registry and rejects the block if it's missing`,
+      );
+      continue;
+    }
+    overrides[geyserStateKey] = def;
     if (base === undefined) {
       base = { name: def.name ?? safeName(variant.model), ...def };
       // A rotated variant's transformation must not become the block default.
@@ -128,9 +152,31 @@ function convertBlockstates(
   ctx.report.converted("blocks", path, [`${converted} custom block state(s) mapped`]);
 }
 
-/** Blockstate keys keep Java's prop=value,prop=value format; "" = default state. */
-function normalizeStateKey(key: string): string {
-  return key.trim();
+/**
+ * Rewrite a resource-pack blockstate variant key into the exact string Geyser's
+ * block-state registry is keyed by: every property of the block, sorted by
+ * property name, values lowercased. Returns undefined when the key can't be
+ * made to match — a partial key (the pack matched on a subset of properties) or
+ * one naming a property the block doesn't have. Emitting those anyway makes
+ * Geyser reject the whole block, so they're reported and dropped instead.
+ */
+function normalizeStateKey(key: string, properties: string[]): string | undefined {
+  const trimmed = key.trim();
+  if (trimmed === "") return undefined;
+  const values = new Map<string, string>();
+  for (const pair of trimmed.split(",")) {
+    const eq = pair.indexOf("=");
+    if (eq === -1) return undefined;
+    values.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim().toLowerCase());
+  }
+  if (values.size !== properties.length) return undefined;
+  const parts: string[] = [];
+  for (const property of properties) {
+    const value = values.get(property);
+    if (value === undefined) return undefined;
+    parts.push(`${property}=${value}`);
+  }
+  return parts.join(",");
 }
 
 /** Wrap an angle into (-180, 180] in 90° steps. */
