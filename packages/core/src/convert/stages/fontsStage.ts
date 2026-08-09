@@ -24,6 +24,13 @@ interface GlyphPlacement {
   h: number;
   /** Java bitmap-provider ascent — higher means drawn higher up the line. */
   ascent: number;
+  /**
+   * Java bitmap-provider `height`: how tall the glyph renders, in the same
+   * units as the 8px text line, *regardless* of its source resolution. This is
+   * the only size that matters — two glyphs sharing a height render the same
+   * size in Java even if one ships an 8px texture and the other a 96px one.
+   */
+  height: number;
 }
 
 /**
@@ -43,18 +50,20 @@ const MAX_SANE_ASCENT = 64;
 const MAX_CELL = 128;
 
 /**
- * Java gives every bitmap provider its own `height`, so a 256px banner and an
- * 8px status icon can share a codepoint page and each render at its own size.
- * Bedrock has one cell size per page and renders a glyph proportionally to how
- * much of its cell the art fills — so those two cannot coexist. Sizing the cell
- * to the banner shrinks the icons to nothing; sizing it to the icons crops the
- * banner.
+ * Cell fraction the page's typical glyph is drawn at.
  *
- * A glyph more than this many times the page's median extent is treated as the
- * odd one out and dropped, so the rest of the page survives. Dropping one
- * oversized decoration beats losing every icon next to it.
+ * Bedrock has no per-glyph height metric: a glyph's rendered size is set by how
+ * much of its cell the art covers. So Java's `height` has to become a coverage
+ * fraction, and something has to anchor it. The page's median height renders at
+ * this much of its cell, everything else in proportion, clamped to a full cell
+ * — a glyph can't be drawn larger than the cell holding it, which is why Java
+ * heights well above the median (banners meant to tower over the text) come out
+ * smaller than they do in Java.
+ *
+ * 0.75 matches the coverage of glyphs that were already rendering at a sensible
+ * size before heights were honoured at all.
  */
-const OUTSIZED_RATIO = 4;
+const MEDIAN_COVERAGE = 0.75;
 
 /**
  * Codepoint pages we must never emit a sheet for.
@@ -141,6 +150,7 @@ export const fontsStage: PipelineStage = {
                 w: cellW,
                 h: cellH,
                 ascent,
+                height: provider.height ?? 8,
               });
               glyphs++;
             });
@@ -184,54 +194,44 @@ export const fontsStage: PipelineStage = {
         continue;
       }
 
-      // Bake the Java ascent into vertical position. Bedrock has no per-glyph
-      // metric — every glyph would otherwise sit flush to the top of its cell,
-      // so glyphs authored at different heights (rank tags vs inline icons)
-      // lose their relative alignment. Drop each glyph inside its cell by how
-      // far its ascent sits below the page's highest, preserving that offset.
+      // Everything below is in Java line units (the same units as `height` and
+      // `ascent`), converted to cell pixels once via `perUnit`. Source
+      // resolution is deliberately not part of it: Java scales a provider's
+      // texture to its `height`, so an 8px and a 96px source with the same
+      // height must come out the same size.
+      const heights = all.map((g) => g.height).sort((a, b) => a - b);
+      const medianHeight = Math.max(1, heights[heights.length >> 1]!);
+      const cell = Math.min(MAX_CELL, Math.max(16, ...all.map((g) => Math.max(g.w, g.h))));
+      const perUnit = (cell * MEDIAN_COVERAGE) / medianHeight;
+
+      // Vertical alignment: a glyph whose ascent sits below the page's highest
+      // is drawn that much further down its cell, preserving how the pack
+      // stacked rank tags against inline icons.
       const topAscent = Math.max(...all.map((g) => g.ascent));
-      const drop = (g: GlyphPlacement): number => Math.round(topAscent - g.ascent);
-      const extent = (g: GlyphPlacement): number => Math.max(g.w, g.h + drop(g));
 
-      // Keep the bulk of the page at one scale; an outlier many times larger
-      // would otherwise set the cell size and shrink everything else to
-      // nothing. Median, not mean, so a couple of banners can't drag it up.
-      const sorted = [...all].map(extent).sort((a, b) => a - b);
-      const median = sorted[sorted.length >> 1]!;
-      const glyphs = all.filter((g) => extent(g) <= median * OUTSIZED_RATIO);
-      const dropped = all.length - glyphs.length;
-      if (dropped > 0) {
-        ctx.report.skipped(
-          "fonts",
-          `glyph page U+${hexPage}xx`,
-          `${dropped} oversized glyph(s) dropped — more than ${OUTSIZED_RATIO}× the other glyphs on this page, and Bedrock has one cell size per page, so keeping them would shrink every other glyph on the page to nothing`,
-        );
-      }
-      if (glyphs.length === 0) continue;
-
-      const cell = Math.min(MAX_CELL, Math.max(16, ...glyphs.map(extent)));
       const sheet = createImage(cell * 16, cell * 16);
-      for (const g of glyphs) {
-        const dyOff = Math.min(drop(g), cell - 1);
+      for (const g of all) {
+        // Fit the glyph's Java height into the cell, keeping its aspect ratio;
+        // anything taller than a cell simply fills it.
+        const scale = Math.min(g.height * perUnit, cell) / g.h;
+        const drawW = Math.max(1, Math.min(cell, Math.round(g.w * scale)));
+        const drawH = Math.max(1, Math.min(cell, Math.round(g.h * scale)));
+        const dyOff = Math.max(0, Math.min(Math.round((topAscent - g.ascent) * perUnit), cell - drawH));
         const dx = (g.index % 16) * cell;
         const dy = Math.floor(g.index / 16) * cell + dyOff;
-        nativeBlit(
-          sheet,
-          g.image,
-          g.sx,
-          g.sy,
-          Math.min(g.w, cell),
-          Math.min(g.h, cell - dyOff),
-          dx,
-          dy,
-        );
+        scaledBlit(sheet, g.image, g.sx, g.sy, g.w, g.h, dx, dy, drawW, drawH);
       }
       ctx.bedrock.write(`font/glyph_${hexPage}.png`, encodePng(sheet));
     }
   },
 };
 
-function nativeBlit(
+/**
+ * Copy a `w`x`h` region of `src` into a `drawW`x`drawH` box in `dst`, sampling
+ * nearest-neighbour. Nearest, not bilinear: these are pixel-art glyphs, and
+ * smoothing them turns crisp 8px icons into blur when scaled up to a cell.
+ */
+function scaledBlit(
   dst: RgbaImage,
   src: RgbaImage,
   sx: number,
@@ -240,12 +240,18 @@ function nativeBlit(
   h: number,
   dx: number,
   dy: number,
+  drawW: number,
+  drawH: number,
 ): void {
-  for (let y = 0; y < h; y++) {
-    if (sy + y >= src.height || dy + y >= dst.height) break;
-    for (let x = 0; x < w; x++) {
-      if (sx + x >= src.width || dx + x >= dst.width) break;
-      const si = ((sy + y) * src.width + (sx + x)) * 4;
+  for (let y = 0; y < drawH; y++) {
+    if (dy + y >= dst.height) break;
+    const srcY = sy + Math.min(h - 1, Math.floor((y * h) / drawH));
+    if (srcY >= src.height) break;
+    for (let x = 0; x < drawW; x++) {
+      if (dx + x >= dst.width) break;
+      const srcX = sx + Math.min(w - 1, Math.floor((x * w) / drawW));
+      if (srcX >= src.width) break;
+      const si = (srcY * src.width + srcX) * 4;
       const di = ((dy + y) * dst.width + (dx + x)) * 4;
       dst.data[di] = src.data[si]!;
       dst.data[di + 1] = src.data[si + 1]!;

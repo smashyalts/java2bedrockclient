@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { zipSync } from "fflate";
 import { encode } from "fast-png";
-import { decodePng } from "../src/image/png.js";
+import { decodePng, type RgbaImage } from "../src/image/png.js";
 import { convertPack, readZip } from "../src/index.js";
 
 function png(width = 16, height = 16): Uint8Array {
@@ -104,34 +104,33 @@ describe("aux stages", () => {
     ).toBe(true);
   });
 
-  it("drops an outsized glyph rather than shrinking its whole page to nothing", async () => {
-    // A 256px banner and 8px icons share a codepoint page. Bedrock has one cell
-    // size per page and scales art by how much of its cell it fills, so sizing
-    // the cell to the banner renders every icon at 8/256 of its size.
+  it("renders glyphs of equal Java height at equal size, whatever their source resolution", async () => {
+    // Java scales a provider's texture to its `height`, so these two render
+    // identically in game despite one shipping 8x the pixels. Bedrock has no
+    // height metric — size comes from how much of its cell the art covers — so
+    // blitting source pixels made the small one 8x smaller than the large one.
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
       "assets/custom/font/default.json": JSON.stringify({
         providers: [
-          { type: "bitmap", file: "custom:font/banner.png", height: 256, ascent: 8, chars: [""] },
-          { type: "bitmap", file: "custom:font/icon1.png", height: 8, ascent: 7, chars: [""] },
-          { type: "bitmap", file: "custom:font/icon2.png", height: 8, ascent: 7, chars: [""] },
+          { type: "bitmap", file: "custom:font/small.png", height: 9, ascent: 8, chars: [""] },
+          { type: "bitmap", file: "custom:font/large.png", height: 9, ascent: 8, chars: [""] },
         ],
       }),
-      "assets/custom/textures/font/banner.png": png(256, 256),
-      "assets/custom/textures/font/icon1.png": png(8, 8),
-      "assets/custom/textures/font/icon2.png": png(8, 8),
+      "assets/custom/textures/font/small.png": png(8, 8),
+      "assets/custom/textures/font/large.png": png(64, 64),
     });
-    const result = await convertPack(zip, { packName: "Outsized" });
-    const sheet = decodePng(readZip(result.mcpack).read("font/glyph_E0.png")!);
-    // Cell stays sized to the icons, not the banner.
-    expect(sheet.width / 16).toBeLessThanOrEqual(16);
-    expect(result.report.entries.some((e) => e.detail?.includes("oversized glyph"))).toBe(true);
+    const sheet = decodePng(
+      readZip((await convertPack(zip, { packName: "Heights" })).mcpack).read("font/glyph_E0.png")!,
+    );
+    const cell = sheet.width / 16;
+    expect(opaqueRows(sheet, cell, 0)).toEqual(opaqueRows(sheet, cell, cell));
+    // ...and each actually covers a usable share of its cell, not a few pixels.
+    const [top, bottom] = opaqueRows(sheet, cell, 0);
+    expect((bottom - top + 1) / cell).toBeGreaterThan(0.5);
   });
 
-  it("bakes the Java ascent into each glyph's vertical position in its cell", async () => {
-    // Two glyphs on the same page with different ascents. The page's highest
-    // ascent (10) sits flush to the top of its cell; the lower one (2) must be
-    // pushed down by the 8-unit difference so their relative alignment holds.
+  it("places a lower-ascent glyph below a higher-ascent one in its cell", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
       "assets/custom/font/default.json": JSON.stringify({
@@ -143,22 +142,13 @@ describe("aux stages", () => {
       "assets/custom/textures/font/high.png": png(8, 8),
       "assets/custom/textures/font/low.png": png(8, 8),
     });
-    const out = readZip((await convertPack(zip, { packName: "Ascent" })).mcpack);
-    // decodePng normalises to RGBA (the sheet may ship indexed/grayscale).
-    const sheet = decodePng(out.read("font/glyph_E0.png")!);
+    const sheet = decodePng(
+      readZip((await convertPack(zip, { packName: "Ascent" })).mcpack).read("font/glyph_E0.png")!,
+    );
     const cell = sheet.width / 16;
-    const firstOpaqueRow = (cellX: number): number => {
-      for (let y = 0; y < cell; y++) {
-        for (let x = cellX; x < cellX + cell; x++) {
-          if (sheet.data[(y * sheet.width + x) * 4 + 3]! > 0) return y;
-        }
-      }
-      return -1;
-    };
-    // Glyph 0 (ascent 10) anchored at the top of its cell; glyph 1 (ascent 2)
-    // dropped by 10 - 2 = 8 rows.
-    expect(firstOpaqueRow(0)).toBe(0);
-    expect(firstOpaqueRow(cell)).toBe(8);
+    // The page's highest ascent anchors to the top; the lower one sits under it.
+    expect(opaqueRows(sheet, cell, 0)[0]).toBe(0);
+    expect(opaqueRows(sheet, cell, cell)[0]).toBeGreaterThan(0);
   });
 
   it("drops glyphs hidden in Java by an off-screen ascent instead of showing them", async () => {
@@ -198,3 +188,18 @@ describe("aux stages", () => {
     ).toBe(true);
   });
 });
+
+/** First and last rows holding an opaque pixel inside the cell starting at `cellX`. */
+function opaqueRows(sheet: RgbaImage, cell: number, cellX: number): [number, number] {
+  let top = -1;
+  let bottom = -1;
+  for (let y = 0; y < cell; y++) {
+    for (let x = cellX; x < cellX + cell; x++) {
+      if (sheet.data[(y * sheet.width + x) * 4 + 3]! === 0) continue;
+      if (top === -1) top = y;
+      bottom = y;
+      break;
+    }
+  }
+  return [top, bottom];
+}
