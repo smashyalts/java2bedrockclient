@@ -118,11 +118,14 @@ function legacyOverridePredicates(
   const firework = predicate["firework"];
   if (firework !== undefined && firework !== 0) {
     extraPredicates.push({ type: "match", property: "charge_type", value: "rocket" });
-  } else if (charged !== undefined) {
-    extraPredicates.push({
-      type: "match",
-      property: "charge_type",
-      value: charged !== 0 ? "arrow" : "none",
+  } else if (charged !== undefined && charged !== 0) {
+    extraPredicates.push({ type: "match", property: "charge_type", value: "arrow" });
+  } else if (charged === 0) {
+    // "not charged" needs a negated match, which the v2 format has no syntax
+    // for — emit the model unconditionally rather than an unreadable predicate.
+    out.unsupported.push({
+      origin,
+      reason: `"charged: 0" (uncharged crossbow) can't be expressed as a Geyser match predicate — model used for every charge state`,
     });
   }
   for (const [key, value] of Object.entries(predicate)) {
@@ -163,13 +166,30 @@ const GEYSER_MATCH_PROPERTIES: Record<string, string> = {
   custom_model_data: "custom_model_data",
 };
 
+/**
+ * Values Geyser accepts for a match property whose value is an enum rather than
+ * a free identifier. Geyser resolves these with `Enum.valueOf`, so a value
+ * outside the set throws and the whole definition is dropped from the mappings.
+ *
+ * Java's `charge_type` has a third case, `none`, that Geyser's ChargedProjectile
+ * .ChargeType doesn't — and a match predicate can't be negated, so "not
+ * charged" has no v2 equivalent at all.
+ */
+const GEYSER_MATCH_VALUES: Record<string, Set<string>> = {
+  charge_type: new Set(["arrow", "rocket"]),
+};
+
+/**
+ * Geyser's ItemRangeDispatchProperty. Java has several more range properties
+ * (`time`, `compass`, `crossbow/pull`, `use_duration`, …) that fall through to
+ * the fallback model — deliberately absent rather than mapped to a name Geyser
+ * would reject.
+ */
 const GEYSER_RANGE_PROPERTIES: Record<string, string> = {
   damage: "damage",
   count: "count",
   custom_model_data: "custom_model_data",
   "bundle/fullness": "bundle_fullness",
-  "compass_angle": "compass_angle",
-  "clock": "clock",
 };
 
 interface ItemModelNode {
@@ -341,7 +361,15 @@ function flattenNode(
           const whenStr = typeof when === "string" ? when
             : typeof when === "number" || typeof when === "boolean" ? String(when)
             : undefined;
-          if (whenStr !== undefined) {
+          const allowed = GEYSER_MATCH_VALUES[geyserProperty];
+          if (whenStr !== undefined && allowed !== undefined && !allowed.has(whenStr.toLowerCase())) {
+            // Geyser reads this value as an enum constant; an unknown one makes
+            // it reject the definition, so drop the case instead.
+            ctx.out.unsupported.push({
+              origin: ctx.origin,
+              reason: `select case "${whenStr}" on ${property} has no Geyser equivalent — that state keeps the default look on Bedrock`,
+            });
+          } else if (whenStr !== undefined) {
             flattenNode(c.model, [...predicates, { type: "match", property: geyserProperty, value: whenStr }], ctx, priority);
           } else {
             ctx.out.unsupported.push({
