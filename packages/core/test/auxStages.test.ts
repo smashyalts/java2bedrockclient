@@ -82,6 +82,52 @@ describe("aux stages", () => {
     expect(out.has("font/glyph_E0.png")).toBe(true);
   });
 
+  it("never replaces Bedrock's ASCII sheet to honour a few decorative overrides", async () => {
+    // ItemsAdder skins A/!/@ for its GUI titles. font/glyph_00.png replaces
+    // Bedrock's whole Latin-1 sheet, so emitting it for three glyphs would
+    // blank every other letter, digit and punctuation mark in the game.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/custom/font/gui.json": JSON.stringify({
+        providers: [
+          { type: "bitmap", file: "custom:font/a.png", height: 8, ascent: 7, chars: ["A"] },
+          { type: "bitmap", file: "custom:font/at.png", height: 8, ascent: 7, chars: ["@"] },
+        ],
+      }),
+      "assets/custom/textures/font/a.png": png(8, 8),
+      "assets/custom/textures/font/at.png": png(8, 8),
+    });
+    const result = await convertPack(zip, { packName: "Ascii" });
+    expect(readZip(result.mcpack).has("font/glyph_00.png")).toBe(false);
+    expect(
+      result.report.entries.some((e) => e.detail?.includes("blank every character")),
+    ).toBe(true);
+  });
+
+  it("drops an outsized glyph rather than shrinking its whole page to nothing", async () => {
+    // A 256px banner and 8px icons share a codepoint page. Bedrock has one cell
+    // size per page and scales art by how much of its cell it fills, so sizing
+    // the cell to the banner renders every icon at 8/256 of its size.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/custom/font/default.json": JSON.stringify({
+        providers: [
+          { type: "bitmap", file: "custom:font/banner.png", height: 256, ascent: 8, chars: [""] },
+          { type: "bitmap", file: "custom:font/icon1.png", height: 8, ascent: 7, chars: [""] },
+          { type: "bitmap", file: "custom:font/icon2.png", height: 8, ascent: 7, chars: [""] },
+        ],
+      }),
+      "assets/custom/textures/font/banner.png": png(256, 256),
+      "assets/custom/textures/font/icon1.png": png(8, 8),
+      "assets/custom/textures/font/icon2.png": png(8, 8),
+    });
+    const result = await convertPack(zip, { packName: "Outsized" });
+    const sheet = decodePng(readZip(result.mcpack).read("font/glyph_E0.png")!);
+    // Cell stays sized to the icons, not the banner.
+    expect(sheet.width / 16).toBeLessThanOrEqual(16);
+    expect(result.report.entries.some((e) => e.detail?.includes("oversized glyph"))).toBe(true);
+  });
+
   it("bakes the Java ascent into each glyph's vertical position in its cell", async () => {
     // Two glyphs on the same page with different ascents. The page's highest
     // ascent (10) sits flush to the top of its cell; the lower one (2) must be

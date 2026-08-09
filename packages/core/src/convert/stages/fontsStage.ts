@@ -35,14 +35,53 @@ interface GlyphPlacement {
 const MAX_SANE_ASCENT = 64;
 
 /**
+ * Sheet size ceiling. Bedrock clients cap resource-pack textures at 4096 on
+ * desktop and lower on mobile; a sheet over the cap fails to load and takes
+ * every glyph on that page with it. 2048 (128px cells) is comfortably inside
+ * every platform's limit and still far finer than vanilla's 16px cells.
+ */
+const MAX_CELL = 128;
+
+/**
+ * Java gives every bitmap provider its own `height`, so a 256px banner and an
+ * 8px status icon can share a codepoint page and each render at its own size.
+ * Bedrock has one cell size per page and renders a glyph proportionally to how
+ * much of its cell the art fills — so those two cannot coexist. Sizing the cell
+ * to the banner shrinks the icons to nothing; sizing it to the icons crops the
+ * banner.
+ *
+ * A glyph more than this many times the page's median extent is treated as the
+ * odd one out and dropped, so the rest of the page survives. Dropping one
+ * oversized decoration beats losing every icon next to it.
+ */
+const OUTSIZED_RATIO = 4;
+
+/**
+ * Codepoint pages we must never emit a sheet for.
+ *
+ * A `font/glyph_XX.png` *replaces* Bedrock's own sheet for that page — the 256
+ * cells we leave transparent are not "unset", they're blank characters. Page 00
+ * is Basic Latin + Latin-1: every letter, digit and punctuation mark in ordinary
+ * text. Packs routinely override two or three ASCII codepoints for decoration
+ * (ItemsAdder skins `A`, `!` and `@` for its GUI titles), and honouring that
+ * would erase the entire alphabet to gain three ornaments.
+ */
+const RESERVED_PAGES = new Set([0x00]);
+
+/**
  * Converts bitmap font providers into Bedrock glyph page sheets
  * (font/glyph_XX.png — a 16×16 grid of the 256 codepoints in page XX).
  *
  * Bedrock renders glyph cells at their native pixel data (advance from the
  * opaque width), so — matching known-working converters — glyphs are drawn at
- * NATIVE resolution anchored top-left, and each page's cell size is the
- * largest glyph dimension on that page (min 16). Java height/ascent metrics
- * have no Bedrock equivalent and are ignored.
+ * NATIVE resolution anchored top-left, and a page's cell is sized to the
+ * glyphs on it, bounded by {@link MAX_CELL} and ignoring outliers
+ * ({@link OUTSIZED_RATIO}). Java's per-provider `height` has no Bedrock
+ * equivalent; `ascent` is baked into the glyph's position within its cell.
+ *
+ * Note what a sheet means: writing `font/glyph_XX.png` replaces Bedrock's whole
+ * sheet for that page, so a page we emit must be one we can fill — see
+ * {@link RESERVED_PAGES}.
  */
 export const fontsStage: PipelineStage = {
   name: "fonts",
@@ -134,18 +173,46 @@ export const fontsStage: PipelineStage = {
       byPage.set(p.page, list);
     }
 
-    for (const [page, glyphs] of byPage) {
+    for (const [page, all] of byPage) {
+      const hexPage = page.toString(16).toUpperCase().padStart(2, "0");
+      if (RESERVED_PAGES.has(page)) {
+        ctx.report.skipped(
+          "fonts",
+          `glyph page U+${hexPage}xx`,
+          `${all.length} glyph(s) override ordinary text characters — emitting this page would replace Bedrock's own sheet and blank every character the pack doesn't define`,
+        );
+        continue;
+      }
+
       // Bake the Java ascent into vertical position. Bedrock has no per-glyph
       // metric — every glyph would otherwise sit flush to the top of its cell,
       // so glyphs authored at different heights (rank tags vs inline icons)
       // lose their relative alignment. Drop each glyph inside its cell by how
       // far its ascent sits below the page's highest, preserving that offset.
-      const topAscent = Math.max(...glyphs.map((g) => g.ascent));
+      const topAscent = Math.max(...all.map((g) => g.ascent));
       const drop = (g: GlyphPlacement): number => Math.round(topAscent - g.ascent);
-      const cell = Math.max(16, ...glyphs.map((g) => Math.max(g.w, g.h + drop(g))));
+      const extent = (g: GlyphPlacement): number => Math.max(g.w, g.h + drop(g));
+
+      // Keep the bulk of the page at one scale; an outlier many times larger
+      // would otherwise set the cell size and shrink everything else to
+      // nothing. Median, not mean, so a couple of banners can't drag it up.
+      const sorted = [...all].map(extent).sort((a, b) => a - b);
+      const median = sorted[sorted.length >> 1]!;
+      const glyphs = all.filter((g) => extent(g) <= median * OUTSIZED_RATIO);
+      const dropped = all.length - glyphs.length;
+      if (dropped > 0) {
+        ctx.report.skipped(
+          "fonts",
+          `glyph page U+${hexPage}xx`,
+          `${dropped} oversized glyph(s) dropped — more than ${OUTSIZED_RATIO}× the other glyphs on this page, and Bedrock has one cell size per page, so keeping them would shrink every other glyph on the page to nothing`,
+        );
+      }
+      if (glyphs.length === 0) continue;
+
+      const cell = Math.min(MAX_CELL, Math.max(16, ...glyphs.map(extent)));
       const sheet = createImage(cell * 16, cell * 16);
       for (const g of glyphs) {
-        const dyOff = drop(g);
+        const dyOff = Math.min(drop(g), cell - 1);
         const dx = (g.index % 16) * cell;
         const dy = Math.floor(g.index / 16) * cell + dyOff;
         nativeBlit(
@@ -159,8 +226,7 @@ export const fontsStage: PipelineStage = {
           dy,
         );
       }
-      const hex = page.toString(16).toUpperCase().padStart(2, "0");
-      ctx.bedrock.write(`font/glyph_${hex}.png`, encodePng(sheet));
+      ctx.bedrock.write(`font/glyph_${hexPage}.png`, encodePng(sheet));
     }
   },
 };
