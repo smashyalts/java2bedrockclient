@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { wrap, proxy, transfer, type Remote } from "comlink";
 import type { ConvertResult } from "@geyser-converter/core";
 import type { WorkerApi } from "./worker/convert.worker.js";
@@ -26,16 +26,26 @@ export function App() {
   // The pack is staged on drop, not converted — the user adds config zips and
   // tweaks options first, then presses Convert.
   const [packFile, setPackFile] = useState<File | null>(null);
-  const workerRef = useRef<Remote<WorkerApi> | null>(null);
+  // Both refs point at the same worker: the raw handle so it can be terminated,
+  // the comlink proxy for calls.
+  const workerRef = useRef<Worker | null>(null);
+  const apiRef = useRef<Remote<WorkerApi> | null>(null);
 
   const getWorker = useCallback((): Remote<WorkerApi> => {
-    if (workerRef.current === null) {
+    if (apiRef.current === null) {
       const worker = new Worker(new URL("./worker/convert.worker.ts", import.meta.url), {
         type: "module",
       });
-      workerRef.current = wrap<WorkerApi>(worker);
+      workerRef.current = worker;
+      apiRef.current = wrap<WorkerApi>(worker);
     }
-    return workerRef.current;
+    return apiRef.current;
+  }, []);
+
+  const terminateWorker = useCallback(() => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    apiRef.current = null;
   }, []);
 
   const startConvert = useCallback(
@@ -66,6 +76,16 @@ export function App() {
     },
     [getWorker, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, animate2dHeldItems, oxipngLevel, configZips],
   );
+
+  // Terminate the worker on unmount to avoid leaking a thread.
+  useEffect(() => {
+    return () => { terminateWorker(); };
+  }, [terminateWorker]);
+
+  const cancelConversion = useCallback(() => {
+    terminateWorker();
+    setPhase({ kind: "idle" });
+  }, [terminateWorker]);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "40px 20px" }}>
@@ -305,7 +325,7 @@ export function App() {
         </>
       )}
       {phase.kind === "converting" && (
-        <ProgressView stage={phase.stage} done={phase.done} total={phase.total} fileName={phase.fileName} />
+        <ProgressView stage={phase.stage} done={phase.done} total={phase.total} fileName={phase.fileName} onCancel={cancelConversion} />
       )}
       {phase.kind === "done" && (
         <ResultView

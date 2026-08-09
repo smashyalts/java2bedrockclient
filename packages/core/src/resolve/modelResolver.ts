@@ -38,7 +38,7 @@ function modelAssetPath(id: string): string {
   return `assets/${loc.namespace}/models/${loc.path}.json`;
 }
 
-export function loadModel(pack: JavaPack, id: string): JavaModel | undefined {
+function loadModel(pack: JavaPack, id: string): JavaModel | undefined {
   return pack.readJson<JavaModel>(modelAssetPath(id));
 }
 
@@ -136,6 +136,7 @@ function resolveModelUncached(pack: JavaPack, id: string): ResolvedModel | undef
 
 /** Resolve a single "#name" texture reference to a resource location, or undefined on cycle/missing. */
 export function resolveTextureRef(textures: Record<string, string>, ref: string): string | undefined {
+  if (!ref.startsWith("#")) return ref;
   let value = ref;
   const seen = new Set<string>();
   while (value.startsWith("#")) {

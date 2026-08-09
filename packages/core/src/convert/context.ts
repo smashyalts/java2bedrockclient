@@ -179,6 +179,12 @@ export interface ConversionContext {
    */
   textureCache: Map<string, RgbaImage | undefined>;
   /**
+   * Java texture paths loaded by the geometry stage — used by the flipbook
+   * stage to suppress false "skipped" reports for animations that are already
+   * handled by the geometry stage's render controller.
+   */
+  geometryHandledTextures: Set<string>;
+  /**
    * Bow-pull groups detected from legacy overrides — consumed by the
    * bowPullStage to emit charge-progress render controllers.
    */

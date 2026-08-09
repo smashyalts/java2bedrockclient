@@ -219,6 +219,9 @@ export function encodePng(image: RgbaImage): Uint8Array {
   // of the two palette-free/indexed encodings when either fits — skipping the
   // expensive RGBA encode entirely. Only images with >256 colours (photographic
   // textures) fall back to UPNG.
+  // Grayscale skips PLTE but is stuck at whatever bit depth its gray values
+  // need; an indexed encode of the same image can drop to 4 or 2 bits. Neither
+  // dominates, so ship whichever came out smaller.
   const indexed = timeOp("png.encode.indexed", () => encodeIndexedPng(image));
   if (gray !== undefined && (indexed === undefined || gray.length < indexed.length)) return gray;
   if (indexed !== undefined) return indexed;
