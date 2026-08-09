@@ -130,6 +130,33 @@ describe("aux stages", () => {
     expect((bottom - top + 1) / cell).toBeGreaterThan(0.5);
   });
 
+  it("keeps a wide glyph's aspect ratio instead of squashing it into the square cell", async () => {
+    // A 256x64 server banner. Bedrock cells are square and a glyph can't spill
+    // into its neighbour, so scaling to the declared height and clamping the
+    // width separately drew a 4:1 banner as a square.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/custom/font/default.json": JSON.stringify({
+        providers: [
+          { type: "bitmap", file: "custom:font/banner.png", height: 32, ascent: 16, chars: [""] },
+          { type: "bitmap", file: "custom:font/icon.png", height: 9, ascent: 8, chars: [""] },
+        ],
+      }),
+      "assets/custom/textures/font/banner.png": png(256, 64),
+      "assets/custom/textures/font/icon.png": png(16, 16),
+    });
+    const sheet = decodePng(
+      readZip((await convertPack(zip, { packName: "Wide" })).mcpack).read("font/glyph_E0.png")!,
+    );
+    const cell = sheet.width / 16;
+    const [top, bottom] = opaqueRows(sheet, cell, 0);
+    const drawn = bottom - top + 1;
+    // 256x64 is 4:1, and width binds, so it fills the cell across and a
+    // quarter of it down. Allow a pixel of rounding either way.
+    expect(drawn).toBeGreaterThanOrEqual(Math.floor(cell / 4) - 1);
+    expect(drawn).toBeLessThanOrEqual(Math.ceil(cell / 4) + 1);
+  });
+
   it("places a lower-ascent glyph below a higher-ascent one in its cell", async () => {
     const zip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),

@@ -210,16 +210,32 @@ export const fontsStage: PipelineStage = {
       const topAscent = Math.max(...all.map((g) => g.ascent));
 
       const sheet = createImage(cell * 16, cell * 16);
+      let widthBound = 0;
       for (const g of all) {
-        // Fit the glyph's Java height into the cell, keeping its aspect ratio;
-        // anything taller than a cell simply fills it.
-        const scale = Math.min(g.height * perUnit, cell) / g.h;
-        const drawW = Math.max(1, Math.min(cell, Math.round(g.w * scale)));
-        const drawH = Math.max(1, Math.min(cell, Math.round(g.h * scale)));
+        // Fit the glyph's Java height into the cell — but a Bedrock cell is
+        // square and a glyph can't spill into its neighbour, so a wide glyph
+        // (a 256x64 server banner, a rank pill) is bounded by the cell's width
+        // long before its height. Take whichever bound binds first and scale
+        // both axes by it: clamping them separately would keep the full height
+        // while squashing the width, which is how a 4:1 banner ended up drawn
+        // into a square. Wide art therefore renders shorter than its Java
+        // `height` asks for — that height is unreachable in a square cell.
+        const wanted = Math.min(g.height * perUnit, cell) / g.h;
+        const scale = Math.min(wanted, cell / g.w);
+        if (scale < wanted * 0.9) widthBound++;
+        const drawW = Math.max(1, Math.round(g.w * scale));
+        const drawH = Math.max(1, Math.round(g.h * scale));
         const dyOff = Math.max(0, Math.min(Math.round((topAscent - g.ascent) * perUnit), cell - drawH));
         const dx = (g.index % 16) * cell;
         const dy = Math.floor(g.index / 16) * cell + dyOff;
         scaledBlit(sheet, g.image, g.sx, g.sy, g.w, g.h, dx, dy, drawW, drawH);
+      }
+      if (widthBound > 0) {
+        ctx.report.approximated(
+          "fonts",
+          `glyph page U+${hexPage}xx`,
+          `${widthBound} wide glyph(s) (banners, rank pills) render shorter than their Java height — a Bedrock glyph is confined to one square cell, so width runs out first and scaling to the declared height would squash them`,
+        );
       }
       ctx.bedrock.write(`font/glyph_${hexPage}.png`, encodePng(sheet));
     }
