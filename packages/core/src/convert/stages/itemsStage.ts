@@ -13,12 +13,23 @@ import { buildDisplayAnimations } from "../../bedrock/animations.js";
 import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
 import { parseLenientJson } from "../../java/json.js";
 import { frameTicks } from "../../java/mcmeta.js";
+import { fitFilePath, fitPathName } from "../../util/packPath.js";
 import type { JavaElement } from "../../java/model.js";
 
 /** Sanitize a resource location into a safe identifier chunk. */
 export function safeName(id: string): string {
   return id.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
 }
+
+/**
+ * Path budgets (see {@link fitPathName}): the longest path each generated name
+ * ends up inside, minus the name. Bedrock warns at 80 characters, and a pack
+ * that obfuscates model ids into UUIDs blows through that on its own.
+ */
+/** `textures/geyser_custom/<name>_rrggbb.png` — the dye-tinted icon variant. */
+const ICON_PATH_RESERVED = "textures/geyser_custom/_rrggbb.png".length;
+/** `textures/geyser_custom/anim/<name>_99.png` — one file per held-animation frame. */
+const HELD_FRAME_PATH_RESERVED = "textures/geyser_custom/anim/_99.png".length;
 
 interface EncodeJob {
   path: string;
@@ -161,7 +172,7 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
     return;
   }
 
-  const name = safeName(variant.model);
+  const name = fitPathName(safeName(variant.model), ICON_PATH_RESERVED);
   const iconKey = colorHint !== undefined ? `${name}_${colorHint.toString(16)}` : name;
   const outPath = `textures/geyser_custom/${iconKey}.png`;
 
@@ -246,7 +257,7 @@ function readSpriteAnimation(
 function emitHeldSpriteAnimation(
   ctx: ConversionContext,
   identifier: string,
-  name: string,
+  iconName: string,
   anim: { strip: RgbaImage; frametime: number },
   resolved: ResolvedModel,
   encodeJobs: EncodeJob[],
@@ -254,6 +265,10 @@ function emitHeldSpriteAnimation(
   const size = anim.strip.width;
   const count = Math.floor(anim.strip.height / size);
   if (count < 2) return undefined;
+
+  // The frame textures are referenced by path from the attachable, so they —
+  // not the JSON files below — set how much of the name survives here.
+  const name = fitPathName(iconName, HELD_FRAME_PATH_RESERVED);
 
   // One texture per frame; frame 0 is the attachable's `default`.
   const shortnames = ["default"];
@@ -287,20 +302,20 @@ function emitHeldSpriteAnimation(
     () => ({ x: 0, y: 0, width: size, height: size }),
     { width: size, height: size },
   );
-  ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}_held.geo.json`, geo.geometry);
+  ctx.bedrock.writeJson(fitFilePath("models/entity/geyser_custom/", `${name}_held`, ".geo.json"), geo.geometry);
 
   const anims = buildDisplayAnimations(`${name}_held`, resolved.display ?? {});
-  ctx.bedrock.writeJson(`animations/geyser_custom/${name}_held.animation.json`, anims.file);
+  ctx.bedrock.writeJson(fitFilePath("animations/geyser_custom/", `${name}_held`, ".animation.json"), anims.file);
 
   const renderController = `controller.render.gc_${name}_held`;
   const fps = 20 / anim.frametime;
   ctx.bedrock.writeJson(
-    `render_controllers/geyser_custom/${name}_held.render_controllers.json`,
+    fitFilePath("render_controllers/geyser_custom/", `${name}_held`, ".render_controllers.json"),
     buildFlipbookRenderController({ id: renderController, frameShortnames: shortnames, fps }),
   );
 
   ctx.bedrock.writeJson(
-    `attachables/geyser_custom/${safeName(identifier.split(":")[1] ?? identifier)}.json`,
+    fitFilePath("attachables/geyser_custom/", safeName(identifier.split(":")[1] ?? identifier), ".json"),
     buildItemAttachable({
       identifier,
       material: ctx.options.attachableMaterial,

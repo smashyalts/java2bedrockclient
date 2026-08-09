@@ -20,6 +20,15 @@ import {
 } from "../../image/png.js";
 import { renderModelIcon } from "../../image/modelRender.js";
 import { safeName } from "./itemsStage.js";
+import { fitFilePath, fitPathName } from "../../util/packPath.js";
+
+/**
+ * Path budget for the bow name (see {@link fitPathName}): its stage textures
+ * are referenced by path from the attachable, so they set the limit. The
+ * geometry, animation and render-controller files are found by the identifier
+ * inside them and get {@link fitFilePath} at the write instead.
+ */
+const BOW_TEXTURE_RESERVED = "textures/geyser_custom/bow__pulling_2.png".length;
 import { parseResourceLocation } from "../../java/javaPack.js";
 import type { BowPullGroup } from "../../java/itemVariants.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
@@ -59,7 +68,10 @@ interface StageResolved {
 
 function convertBowPullGroup(ctx: ConversionContext, group: BowPullGroup): void {
   const origin = group.origin;
-  const name = safeName(group.itemModelId ?? group.baseItem ?? group.standbyModel);
+  const name = fitPathName(
+    safeName(group.itemModelId ?? group.baseItem ?? group.standbyModel),
+    BOW_TEXTURE_RESERVED,
+  );
 
   // Resolve every model: standby first (frame 0 = "default"), then pull stages.
   const modelIds = [group.standbyModel, ...group.stages.map((s) => s.model)];
@@ -94,12 +106,12 @@ function convertBowPullGroup(ctx: ConversionContext, group: BowPullGroup): void 
 
   // Display-transform animations from the standby model.
   const anims = buildDisplayAnimations(`bow_${name}`, stages[0]!.resolved.display);
-  ctx.bedrock.writeJson(`animations/geyser_custom/bow_${name}.animation.json`, anims.file);
+  ctx.bedrock.writeJson(fitFilePath("animations/geyser_custom/", `bow_${name}`, ".animation.json"), anims.file);
 
   // Render controller: charge ladder selects the texture (and geometry, for 3D).
   const renderControllerId = `controller.render.gc_bow_${name}`;
   ctx.bedrock.writeJson(
-    `render_controllers/geyser_custom/bow_${name}.render_controllers.json`,
+    fitFilePath("render_controllers/geyser_custom/", `bow_${name}`, ".render_controllers.json"),
     buildBowPullRenderController({
       id: renderControllerId,
       frameShortnames: built.shortnames,
@@ -143,7 +155,7 @@ function convertBowPullGroup(ctx: ConversionContext, group: BowPullGroup): void 
   (ctx.geyserMappings.items[baseItem] ??= []).push(definition);
   ctx.definitionTextures.set(definition, [...built.allTextureIds]);
 
-  const attachablePath = `attachables/geyser_custom/${safeName(identifierName)}.json`;
+  const attachablePath = fitFilePath("attachables/geyser_custom/", safeName(identifierName), ".json");
   ctx.bedrock.writeJson(
     attachablePath,
     buildBowPullAttachable({
@@ -234,8 +246,9 @@ function buildSpriteBow(
     width: stdImg.width,
     height: stdImg.height,
   });
-  ctx.bedrock.writeJson(`models/entity/geyser_custom/bow_${name}.geo.json`, geo.geometry);
-  outputs.push(`models/entity/geyser_custom/bow_${name}.geo.json`);
+  const geoPath = fitFilePath("models/entity/geyser_custom/", `bow_${name}`, ".geo.json");
+  ctx.bedrock.writeJson(geoPath, geo.geometry);
+  outputs.push(geoPath);
 
   return {
     is3d: false,
@@ -308,7 +321,7 @@ function buildGeometryBow(
       width: atlas.image.width,
       height: atlas.image.height,
     });
-    const geoPath = `models/entity/geyser_custom/bow_${name}_${stage.shortname}.geo.json`;
+    const geoPath = fitFilePath("models/entity/geyser_custom/", `bow_${name}_${stage.shortname}`, ".geo.json");
     ctx.bedrock.writeJson(geoPath, geo.geometry);
     geometryMap[stage.shortname] = geometryId;
     outputs.push(geoPath);

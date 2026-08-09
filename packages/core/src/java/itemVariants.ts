@@ -4,7 +4,12 @@ import { parseLenientJson } from "./json.js";
 
 /** One predicate condition attached to an item variant, in Geyser v2 predicate shape. */
 export type VariantPredicate =
-  | { type: "condition"; property: string; expected?: boolean }
+  /**
+   * `component` is mandatory for `has_component` and `index` optional for
+   * `custom_model_data` — Geyser throws on the whole mappings file if a
+   * `has_component` predicate arrives without one.
+   */
+  | { type: "condition"; property: string; expected?: boolean; component?: string; index?: number }
   | { type: "match"; property: string; value: string }
   | { type: "range_dispatch"; property: string; threshold: number; scale?: number; normalize?: boolean };
 
@@ -178,6 +183,10 @@ interface ItemModelNode {
   on_false?: ItemModelNode;
   cases?: { when: unknown; model: ItemModelNode }[];
   base?: string;
+  /** `has_component` condition: the data component whose presence is tested. */
+  component?: string;
+  /** `custom_model_data` condition: which entry of the component's list to read. */
+  index?: number;
   [key: string]: unknown;
 }
 
@@ -249,22 +258,34 @@ function flattenNode(
     case "condition": {
       const property = (node.property ?? "").replace(/^minecraft:/, "");
       const geyserProperty = GEYSER_CONDITIONS[property];
-      if (geyserProperty === undefined) {
+      // `has_component` carries the component it tests for, and Geyser rejects
+      // the entire mappings file if it's missing — treat an absent one the same
+      // as an unsupported condition rather than emitting an unloadable file.
+      const extra =
+        geyserProperty === "has_component"
+          ? typeof node.component === "string"
+            ? { component: node.component }
+            : undefined
+          : geyserProperty === "custom_model_data" && typeof node.index === "number"
+            ? { index: node.index }
+            : {};
+      if (geyserProperty === undefined || extra === undefined) {
         // Geyser can't test this state (using_item, selected, carried, …):
         // the "false" branch is the item's resting look — emit it without the
         // predicate; the state-specific branch cannot be expressed.
-        ctx.out.unsupported.push({
-          origin: ctx.origin,
-          reason: `condition "${property}" not supported by Geyser — default (false) branch used, "${property}" state keeps the default look on Bedrock`,
-        });
+        const reason =
+          extra === undefined
+            ? `condition "${property}" has no "component" to test — default (false) branch used`
+            : `condition "${property}" not supported by Geyser — default (false) branch used, "${property}" state keeps the default look on Bedrock`;
+        ctx.out.unsupported.push({ origin: ctx.origin, reason });
         if (node.on_false) flattenNode(node.on_false, predicates, ctx, priority);
         return;
       }
       if (node.on_true) {
-        flattenNode(node.on_true, [...predicates, { type: "condition", property: geyserProperty }], ctx, priority);
+        flattenNode(node.on_true, [...predicates, { type: "condition", property: geyserProperty, ...extra }], ctx, priority);
       }
       if (node.on_false) {
-        flattenNode(node.on_false, [...predicates, { type: "condition", property: geyserProperty, expected: false }], ctx, priority);
+        flattenNode(node.on_false, [...predicates, { type: "condition", property: geyserProperty, expected: false, ...extra }], ctx, priority);
       }
       return;
     }

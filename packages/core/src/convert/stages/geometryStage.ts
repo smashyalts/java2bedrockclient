@@ -12,6 +12,7 @@ import { buildDefinition, safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { frameTicks } from "../../java/mcmeta.js";
 import { fastHash } from "../../util/hash.js";
+import { fitFilePath, fitPathName } from "../../util/packPath.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
 import type { ResolvedModel } from "../../resolve/modelResolver.js";
 import { inferHostItemFromModel } from "../../resolve/modelResolver.js";
@@ -155,6 +156,22 @@ interface EncodeJob {
 /** Below this many deferred encodes, the pool round-trip isn't worth it; encode inline. */
 const ENCODE_POOL_THRESHOLD = 24;
 
+/**
+ * Path budget for the model name (see {@link fitPathName}). Only the texture
+ * paths pin it down — they're referenced by path from the attachable, so the
+ * name in them can't be shortened independently. Every other file this stage
+ * writes is found by the identifier inside it, so those get {@link fitFilePath}
+ * at the write instead of dragging the name down to their longer templates.
+ *
+ * `_f99` is the widest animation-frame suffix a timeline realistically reaches.
+ */
+const ATLAS_TEXTURE_RESERVED = "textures/geyser_custom/atlases/_f99.png".length;
+
+/** Attachable file for a bedrock identifier; Bedrock reads the id inside, so the name only has to be unique. */
+function attachablePath(identifier: string): string {
+  return fitFilePath("attachables/geyser_custom/", safeName(identifier.split(":")[1] ?? identifier), ".json");
+}
+
 export const geometryStage: PipelineStage = {
   name: "items-3d",
   async run(ctx: ConversionContext): Promise<void> {
@@ -214,7 +231,6 @@ function convertModel(
 ): void {
   const resolved = group[0]!.resolved;
   const elements = resolved.elements ?? [];
-  const name = safeName(modelId);
 
   // 1. Collect the distinct textures used by element faces.
   const textureIds = new Set<string>();
@@ -259,6 +275,10 @@ function convertModel(
   const maxSourceFrames = fullSlots; // for the subsample report note
   // fps for the render controller; compensates when the timeline is subsampled.
   const fps = (timelineFrames * 20) / durationTicks;
+
+  // Name every generated file after the model, short enough that its atlas
+  // texture path stays under the Bedrock limit.
+  const name = fitPathName(safeName(modelId), ATLAS_TEXTURE_RESERVED);
 
   const framePaths: string[] = [];
   let atlas!: ReturnType<typeof buildAtlas>;
@@ -330,7 +350,7 @@ function convertModel(
     ),
   );
   timeOp("json.write", () =>
-    ctx.bedrock.writeJson(`models/entity/geyser_custom/${name}.geo.json`, geo.geometry),
+    ctx.bedrock.writeJson(fitFilePath("models/entity/geyser_custom/", name, ".geo.json"), geo.geometry),
   );
 
   // 5. Display-transform animations. Back cosmetics (HMCCosmetics backpacks —
@@ -351,7 +371,7 @@ function convertModel(
       return keys.some((k) => k !== "" && backpacks.includes(k));
     });
   const anims = buildDisplayAnimations(name, resolved.display, isBackpack ? { headLift: 12 } : undefined);
-  ctx.bedrock.writeJson(`animations/geyser_custom/${name}.animation.json`, anims.file);
+  ctx.bedrock.writeJson(fitFilePath("animations/geyser_custom/", name, ".animation.json"), anims.file);
   if (isBackpack) {
     ctx.report.approximated(
       "items-3d",
@@ -372,7 +392,7 @@ function convertModel(
       shortnames.push(`frame${f}`);
     }
     ctx.bedrock.writeJson(
-      `render_controllers/geyser_custom/${name}.render_controllers.json`,
+      fitFilePath("render_controllers/geyser_custom/", name, ".render_controllers.json"),
       buildFlipbookRenderController({ id: renderController, frameShortnames: shortnames, fps }),
     );
   }
@@ -434,7 +454,7 @@ function convertModel(
     if (attachableIds.has(identifier)) continue;
     attachableIds.add(identifier);
     ctx.bedrock.writeJson(
-      `attachables/geyser_custom/${safeName(identifier.split(":")[1] ?? identifier)}.json`,
+      attachablePath(identifier),
       buildItemAttachable({
         identifier,
         material: attachableMaterial,
@@ -449,9 +469,9 @@ function convertModel(
 
   const outputs = [
     atlasPath + ".png",
-    `models/entity/geyser_custom/${name}.geo.json`,
-    `animations/geyser_custom/${name}.animation.json`,
-    ...[...attachableIds].map((id) => `attachables/geyser_custom/${safeName(id.split(":")[1] ?? id)}.json`),
+    fitFilePath("models/entity/geyser_custom/", name, ".geo.json"),
+    fitFilePath("animations/geyser_custom/", name, ".animation.json"),
+    ...[...attachableIds].map(attachablePath),
   ];
   if (timelineFrames > 1) {
     const note =

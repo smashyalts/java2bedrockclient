@@ -3,6 +3,15 @@ import { ARMOR_SLOTS, buildArmorAttachable, buildElytraAttachable, type ArmorPie
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { safeName } from "./itemsStage.js";
 import { alphaBleed, decodeCached, encodePng, firstFrame } from "../../image/png.js";
+import { fitFilePath, fitPathName } from "../../util/packPath.js";
+
+/**
+ * Path budget for an armor set name (see {@link fitPathName}): the layer
+ * textures are referenced by path from the attachable, so they set the limit.
+ * The attachable files themselves are found by the identifier inside them and
+ * get {@link fitFilePath}.
+ */
+const ARMOR_TEXTURE_RESERVED = "textures/geyser_custom/armor/_layer1.png".length;
 
 interface EquipmentAsset {
   layers?: {
@@ -48,7 +57,11 @@ export const armorStage: PipelineStage = {
         if (ns === "minecraft" && VANILLA_MATERIALS.has(name)) continue;
         const asset = ctx.java.readJson<EquipmentAsset>(path);
         if (asset?.layers === undefined) continue;
-        const set: ArmorSet = { id: `${ns}:${name}`, name: safeName(`${ns}_${name}`), origin: path };
+        const set: ArmorSet = {
+          id: `${ns}:${name}`,
+          name: fitPathName(safeName(`${ns}_${name}`), ARMOR_TEXTURE_RESERVED),
+          origin: path,
+        };
         const tex = (id: string | undefined, kind: string): string | undefined => {
           if (id === undefined) return undefined;
           const loc = parseResourceLocation(id);
@@ -70,7 +83,13 @@ export const armorStage: PipelineStage = {
         const [, material, layer] = match;
         if (ns === "minecraft" && VANILLA_MATERIALS.has(material!)) continue;
         const id = `${ns}:${material}`;
-        const set = sets.get(id) ?? { id, name: safeName(`${ns}_${material}`), origin: path };
+        const set =
+          sets.get(id) ??
+          {
+            id,
+            name: fitPathName(safeName(`${ns}_${material}`), ARMOR_TEXTURE_RESERVED),
+            origin: path,
+          };
         if (layer === "1") set.layer1 ??= path;
         else set.layer2 ??= path;
         sets.set(id, set);
@@ -155,7 +174,7 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
       // Emit a standalone attachable so server-side item APIs can still use it.
       const identifier = `geyser_custom:${set.name}_${piece}`;
       ctx.bedrock.writeJson(
-        `attachables/geyser_custom/armor/${set.name}_${piece}.json`,
+        fitFilePath("attachables/geyser_custom/armor/", `${set.name}_${piece}`, ".json"),
         buildArmorAttachable({ identifier, piece, texture }),
       );
       ctx.report.approximated(
@@ -167,7 +186,7 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
     }
     for (const def of matches) {
       ctx.bedrock.writeJson(
-        `attachables/geyser_custom/armor/${safeName(def.bedrock_identifier!)}.json`,
+        fitFilePath("attachables/geyser_custom/armor/", safeName(def.bedrock_identifier!), ".json"),
         buildArmorAttachable({ identifier: def.bedrock_identifier!, piece, texture }),
       );
       def.components = {
@@ -198,14 +217,14 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
     if (matches.length === 0) {
       const identifier = `geyser_custom:${set.name}_elytra`;
       ctx.bedrock.writeJson(
-        `attachables/geyser_custom/armor/${set.name}_elytra.json`,
+        fitFilePath("attachables/geyser_custom/armor/", `${set.name}_elytra`, ".json"),
         buildElytraAttachable({ identifier, texture: texturePaths.wings }),
       );
       ctx.report.approximated("armor", set.origin, `no item mapping matched ${material} elytra — standalone attachable emitted`);
     }
     for (const def of matches) {
       ctx.bedrock.writeJson(
-        `attachables/geyser_custom/armor/${safeName(def.bedrock_identifier!)}.json`,
+        fitFilePath("attachables/geyser_custom/armor/", safeName(def.bedrock_identifier!), ".json"),
         buildElytraAttachable({ identifier: def.bedrock_identifier!, texture: texturePaths.wings }),
       );
       def.components = {

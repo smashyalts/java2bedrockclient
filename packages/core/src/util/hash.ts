@@ -32,3 +32,8 @@ export function fastHash(data: Uint8Array): string {
   }
   return (h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0");
 }
+
+/** {@link fastHash} over a string's UTF-8 bytes — for name/path keys. */
+export function fastHashString(text: string): string {
+  return fastHash(new TextEncoder().encode(text));
+}

@@ -9,8 +9,16 @@ import { buildGeometry } from "../../bedrock/geometry.js";
 import { alphaBleed, decodeCached, encodePng, firstFrame, type RgbaImage } from "../../image/png.js";
 import { buildAtlas } from "../../image/atlas.js";
 import { safeName } from "./itemsStage.js";
+import { fitFilePath, fitPathName } from "../../util/packPath.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import type { JavaElement, JavaFaceName } from "../../java/model.js";
+
+/**
+ * Path budget for block names (see {@link fitPathName}): terrain_texture.json
+ * points at the texture by path, so that template sets the limit. The geometry
+ * file is found by the identifier inside it and gets {@link fitFilePath}.
+ */
+const BLOCK_TEXTURE_PATH_RESERVED = "textures/geyser_custom/blocks/.png".length;
 
 /**
  * Custom blocks. Oraxen / ItemsAdder / Nexo implement custom blocks by
@@ -140,7 +148,7 @@ function buildBlockDefinition(
   modelId: string,
   resolved: ResolvedModel,
 ): (Partial<GeyserBlockDefinition> & { name?: string }) | undefined {
-  const name = safeName(modelId);
+  const name = fitPathName(safeName(modelId), BLOCK_TEXTURE_PATH_RESERVED);
   const elements = resolved.elements ?? [];
   if (elements.length === 0) return undefined;
 
@@ -222,7 +230,7 @@ function buildBlockDefinition(
     height: atlas.image.height,
   });
   // Blocks don't need the attachable bone chain, but the extra bones are harmless.
-  ctx.bedrock.writeJson(`models/blocks/geyser_custom/${name}.geo.json`, geo.geometry);
+  ctx.bedrock.writeJson(fitFilePath("models/blocks/geyser_custom/", name, ".geo.json"), geo.geometry);
   ctx.report.approximated(
     "blocks",
     modelId,
@@ -238,7 +246,8 @@ function buildBlockDefinition(
 
 /** Copy a java texture into the pack and register it in terrain_texture.json. */
 function registerTerrainTexture(ctx: ConversionContext, textureId: string): string | undefined {
-  const key = `gcb_${safeName(textureId)}`;
+  const textureName = fitPathName(safeName(textureId), BLOCK_TEXTURE_PATH_RESERVED);
+  const key = `gcb_${textureName}`;
   if (ctx.terrainTextures.has(key)) return key;
   const texPath = ctx.java.assetPath("textures", textureId, ".png");
   const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
@@ -248,7 +257,7 @@ function registerTerrainTexture(ctx: ConversionContext, textureId: string): stri
     img = firstFrame(img);
   }
   alphaBleed(img);
-  const out = `textures/geyser_custom/blocks/${safeName(textureId)}`;
+  const out = `textures/geyser_custom/blocks/${textureName}`;
   ctx.bedrock.write(out + ".png", encodePng(img));
   ctx.terrainTextures.set(key, { textures: out });
   return key;
