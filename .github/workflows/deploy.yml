@@ -1,0 +1,39 @@
+name: Deploy
+
+# Builds the web app on every push to main and publishes it to the gh-pages
+# branch GitHub Pages serves, so the live site can't drift from the source.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Prevent two pushes in quick succession from racing each other onto gh-pages.
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @geyser-converter/web build
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apps/web/dist
+          publish_branch: gh-pages
+          # Pages ignores directories starting with an underscore without this.
+          enable_jekyll: false
+          commit_message: "deploy: ${{ github.event.head_commit.message }}"
