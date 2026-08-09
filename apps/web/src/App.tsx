@@ -204,11 +204,13 @@ export function App() {
             }}
           >
             <label style={labelStyle}>
-              Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder items
-              and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
-              <code>plugins/Nexo/items/</code>, <code>plugins/HMCCosmetics/cosmetics/</code>) —
-              upload them together or as separate zips. Enables real base items, display names,
-              armor sets, and back-cosmetic positioning.
+              Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder /
+              CraftEngine items and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
+              <code>plugins/Nexo/items/</code>,{" "}
+              <code>plugins/CraftEngine/resources/</code>,{" "}
+              <code>plugins/HMCCosmetics/cosmetics/</code>) — upload them together or as separate
+              zips. Enables real base items, display names, armor sets, furniture, and
+              back-cosmetic positioning.
               <input
                 type="file"
                 accept=".zip"

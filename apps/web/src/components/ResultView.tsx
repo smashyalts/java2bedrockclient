@@ -341,7 +341,7 @@ function SetupGuide({ result }: { result: ConvertResult }) {
     if (result.displayEntityConfig !== undefined) {
       f.push(<>Put {code("geyserdisplayentity_config.yml")} in {code("extensions/geyserdisplayentity/")} (back up your own first). <b>Required</b> — its global y-offset/height seat furniture on the floor; without it pieces float ~1 block up.</>);
     }
-    f.push(<>Restart Geyser. Furniture your Nexo/Oraxen/ItemsAdder plugin places now renders for Bedrock.</>);
+    f.push(<>Restart Geyser. Furniture your Nexo/Oraxen/ItemsAdder/CraftEngine plugin places now renders for Bedrock.</>);
     sections.push({ title: "2. Furniture (GeyserDisplayEntity)", steps: f });
   }
 

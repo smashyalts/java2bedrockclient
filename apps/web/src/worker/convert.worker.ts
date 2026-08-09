@@ -14,7 +14,7 @@ export interface WorkerApi {
     zipBytes: Uint8Array,
     options: Partial<ConvertOptions>,
     onProgress: (stage: string, done: number, total: number) => void,
-    /** Optional plugin config zips (Nexo/Oraxen/ItemsAdder/HMCCosmetics, any mix). */
+    /** Optional plugin config zips (Nexo/Oraxen/ItemsAdder/CraftEngine/HMCCosmetics, any mix). */
     configZips?: Uint8Array[],
     /** oxipng effort level (4–6) for the max-compression pass. */
     oxipngLevel?: number,

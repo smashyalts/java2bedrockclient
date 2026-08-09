@@ -461,7 +461,7 @@ function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
   // Model parent chain: if the custom model parents to a specific vanilla
   // item model (e.g. minecraft:item/diamond_sword) to inherit its display
   // transforms, infer the host item from that ancestor. Helps packs not made
-  // with Oraxen/Nexo/ItemsAdder, which don't ship a plugin config zip.
+  // with Oraxen/Nexo/ItemsAdder/CraftEngine, which don't ship a plugin config zip.
   const inferred = inferHostItemFromModel(ctx.java, variant.model, ctx.inferredHostItems);
   if (inferred !== undefined) {
     ctx.report.converted(
@@ -474,7 +474,7 @@ function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
   ctx.report.approximated(
     "items",
     `${variant.origin} → ${variant.model}`,
-    `item-model asset has no fixed host item — mapped under ${ctx.options.modernBaseItem}; upload your Oraxen/Nexo config zip or change the "modern base item" option`,
+    `item-model asset has no fixed host item — mapped under ${ctx.options.modernBaseItem}; upload your Oraxen/Nexo/ItemsAdder/CraftEngine config zip or change the "modern base item" option`,
   );
   ctx.fallbackBaseItemHits++;
   return ctx.options.modernBaseItem;

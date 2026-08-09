@@ -179,7 +179,7 @@ export async function convertPack(
     ctx.report.approximated(
       "config-nudge",
       `${ctx.fallbackBaseItemHits} modern item-model assets`,
-      `${ctx.fallbackBaseItemHits} modern item-model assets were mapped under ${ctx.options.modernBaseItem} because their host item isn't declared in the pack. Upload your Oraxen/Nexo/ItemsAdder config zip (under Plugin config zips above) to get real base items and display names.`,
+      `${ctx.fallbackBaseItemHits} modern item-model assets were mapped under ${ctx.options.modernBaseItem} because their host item isn't declared in the pack. Upload your Oraxen/Nexo/ItemsAdder/CraftEngine config zip (under Plugin config zips above) to get real base items and display names.`,
     );
   }
 

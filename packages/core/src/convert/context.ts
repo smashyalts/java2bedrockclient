@@ -196,7 +196,7 @@ export interface ConversionContext {
    */
   fallbackBaseItemHits: number;
   /**
-   * Whether a plugin config zip (Oraxen/Nexo/ItemsAdder/HMCCosmetics) was
+   * Whether a plugin config zip (Oraxen/Nexo/ItemsAdder/CraftEngine/HMCCosmetics) was
    * provided. When false and fallbackBaseItemHits > 0, the nudge fires.
    */
   configZipProvided: boolean;

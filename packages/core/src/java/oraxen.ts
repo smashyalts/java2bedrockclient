@@ -1,5 +1,20 @@
 import { load } from "js-yaml";
 import { readZipDetailed } from "../io/zip.js";
+import type { VirtualFs } from "../io/vfs.js";
+import {
+  parseColor,
+  parseScaleMagnitude,
+  stripFormatting,
+  stripNamespace,
+  type ConfigHints,
+} from "./configShared.js";
+import {
+  finalizeCraftEngine,
+  isCraftEngineDoc,
+  newCraftEngineState,
+  parseCraftEngineDoc,
+  type CraftEngineState,
+} from "./craftEngine.js";
 
 /**
  * Extracts base-item hints from item-plugin server config YAMLs.
@@ -19,49 +34,16 @@ import { readZipDetailed } from "../io/zip.js";
  *         material: DIAMOND_SWORD
  *         model_path: item/ruby_sword
  *
+ * CraftEngine's layout is different enough to warrant its own parser — see
+ * {@link ./craftEngine.ts} — but it produces the same hints and its documents
+ * are routed here, so callers pass every plugin's config zips to one function.
+ *
  * The item key doubles as the item-model / model name, and the material is
  * the vanilla item the server actually gives players — exactly the "host
  * item" our Geyser mappings need, so parsing these files removes manual
  * per-item base assignment entirely.
  */
-export interface OraxenHints {
-  /** item key (e.g. "ruby_sword") → java item id (e.g. "minecraft:diamond_sword"). */
-  baseItems: Record<string, string>;
-  /** item key → display name from the config (colour codes stripped). */
-  displayNames: Record<string, string>;
-  /** item key → equippable armor link from the config. */
-  equippables: Record<string, { asset: string; slot: string }>;
-  /**
-   * item key → fixed dye colour (0xRRGGBB) from the config (leather armor,
-   * potions). Java applies it server-side; Bedrock icons need it baked in.
-   */
-  colors: Record<string, number>;
-  /** "minecraft:material|cmd" → item key (for packs dispatching on custom_model_data). */
-  cmdKeys: Record<string, string>;
-  /**
-   * Item keys worn as back cosmetics (HMCCosmetics BACKPACK entries — armor
-   * stand head items that Bedrock renders lower than Java).
-   */
-  backpacks: string[];
-  /**
-   * Item keys placed in the world as furniture (Oraxen/Nexo Mechanics.furniture,
-   * ItemsAdder behaviours.furniture) — display-entity items that need the
-   * GeyserDisplayEntity extension to show on Bedrock.
-   */
-  furniture: string[];
-  /**
-   * Per-furniture-key placement hints from the plugin's furniture mechanic:
-   * `none` = the item_display uses NONE (identity) transform, so nothing
-   * repositions it at runtime and it must be seated by y-offset; `scale` = the
-   * furniture's own scale (Nexo `scale: x,y,z`), used to decide `vanilla-scale`.
-   * These come from the plugin config, which overrides the model's own
-   * `display.fixed` (Nexo authors set the transform here, not in the model).
-   */
-  furnitureTransforms: Record<string, { none: boolean; scale: number }>;
-  /** yml files parsed / items discovered, for reporting. */
-  files: number;
-  items: number;
-}
+export type OraxenHints = ConfigHints;
 
 export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
   return parseOraxenConfigZips([zipBytes]);
@@ -69,9 +51,11 @@ export function parseOraxenConfigZip(zipBytes: Uint8Array): OraxenHints {
 
 /**
  * Parse any number of plugin config zips (Nexo/Oraxen items, ItemsAdder
- * contents, HMCCosmetics cosmetics — in any combination and order) into one
- * merged hint set. Cross-zip references (an HMCC backpack pointing at a Nexo
- * item by material+cmd) resolve after all files are read.
+ * contents, CraftEngine configuration, HMCCosmetics cosmetics — in any
+ * combination and order) into one merged hint set. Cross-zip references (an
+ * HMCC backpack pointing at a Nexo item by material+cmd, a CraftEngine
+ * furniture block displaying an item defined in another file) resolve after all
+ * files are read.
  */
 export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
   const hints: OraxenHints = {
@@ -93,22 +77,29 @@ export function parseOraxenConfigZips(zips: Uint8Array[]): OraxenHints {
   // separate core file) resolve regardless of file/zip order.
   const templates = new Map<string, Record<string, unknown>>();
   for (const zipBytes of zips) collectTemplates(zipBytes, templates);
+  const craftEngine = newCraftEngineState();
   for (const zipBytes of zips) {
-    parseOne(zipBytes, hints, backpackSet, furnitureSet, templates);
+    parseOne(zipBytes, hints, backpackSet, furnitureSet, templates, craftEngine);
   }
   // Resolve material+cmd backpack refs now that every item is known.
   for (const ref of backpackSet) {
     if (ref.includes("|") && hints.cmdKeys[ref] !== undefined) backpackSet.add(hints.cmdKeys[ref]!);
   }
+  finalizeCraftEngine(craftEngine, furnitureSet, hints);
   hints.backpacks = [...backpackSet].filter((k) => !k.includes("|"));
   hints.furniture = [...furnitureSet];
   return hints;
 }
 
+/** Every YAML file in the zip — CraftEngine packs use `.yaml`, the rest `.yml`. */
+function listYaml(vfs: VirtualFs): string[] {
+  return [...vfs.list({ suffix: ".yml" }), ...vfs.list({ suffix: ".yaml" })];
+}
+
 /** Collect every top-level yml entry (potential `template:` target) by key. */
 function collectTemplates(zipBytes: Uint8Array, templates: Map<string, Record<string, unknown>>): void {
   const { vfs } = readZipDetailed(zipBytes);
-  for (const path of vfs.list({ suffix: ".yml" })) {
+  for (const path of listYaml(vfs)) {
     const text = vfs.readText(path);
     if (text === undefined) continue;
     let doc: unknown;
@@ -217,10 +208,11 @@ function parseOne(
   backpackSet: Set<string>,
   furnitureSet: Set<string>,
   templates: Map<string, Record<string, unknown>>,
+  craftEngine: CraftEngineState,
 ): void {
   const { vfs } = readZipDetailed(zipBytes);
 
-  for (const path of vfs.list({ suffix: ".yml" })) {
+  for (const path of listYaml(vfs)) {
     const text = vfs.readText(path);
     if (text === undefined) continue;
     let doc: unknown;
@@ -231,6 +223,17 @@ function parseOne(
     }
     if (doc === null || typeof doc !== "object" || Array.isArray(doc)) continue;
     const root = doc as Record<string, unknown>;
+
+    // CraftEngine's sections collide with ItemsAdder's `items:` but mean
+    // different things, so route its documents away from the generic parser.
+    if (isCraftEngineDoc(root)) {
+      const ceFound = parseCraftEngineDoc(root, hints, craftEngine);
+      if (ceFound > 0) {
+        hints.files++;
+        hints.items += ceFound;
+      }
+      continue;
+    }
 
     let found = 0;
     const register = (key: string, value: unknown): void => {
@@ -378,11 +381,6 @@ function extractModelAliases(item: unknown): string[] {
   return aliases;
 }
 
-function stripNamespace(id: string): string {
-  const idx = id.indexOf(":");
-  return (idx === -1 ? id : id.slice(idx + 1)).toLowerCase();
-}
-
 /**
  * Fixed dye colour: Oraxen/Nexo top-level `color` ("R,G,B" or "#RRGGBB"),
  * or Components.dyed_color. Returns 0xRRGGBB.
@@ -397,23 +395,7 @@ function extractColor(item: unknown): number | undefined {
       raw = (components as Record<string, unknown>)["dyed_color"];
     }
   }
-  if (typeof raw === "number" && Number.isInteger(raw)) return raw & 0xffffff;
-  if (typeof raw !== "string") return undefined;
-  const text = raw.trim();
-  const hex = text.match(/^#?([0-9a-fA-F]{6})$/);
-  if (hex) return parseInt(hex[1]!, 16);
-  const rgb = text.match(/^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/);
-  if (rgb) {
-    const [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
-    if (r <= 255 && g <= 255 && b <= 255) return (r << 16) | (g << 8) | b;
-  }
-  // Packed decimal integer (custom plugins like oxywire: color: "10568504").
-  // Only 7+ digits — a 6-digit value is ambiguous with bare hex, handled above.
-  if (/^\d{7,}$/.test(text)) {
-    const n = Number.parseInt(text, 10);
-    if (Number.isFinite(n)) return n & 0xffffff;
-  }
-  return undefined;
+  return parseColor(raw);
 }
 
 /** Oraxen/Nexo Mechanics.furniture, ItemsAdder behaviours.furniture — world-placed display-entity items. */
@@ -460,16 +442,6 @@ function extractFurnitureTransform(
   return undefined;
 }
 
-/** Largest absolute component of a `scale` value ("x,y,z", [x,y,z], or number); 1 when absent. */
-function parseScaleMagnitude(scale: unknown): number {
-  let parts: number[] = [];
-  if (typeof scale === "number") parts = [scale];
-  else if (typeof scale === "string") parts = scale.split(",").map((s) => Number.parseFloat(s.trim()));
-  else if (Array.isArray(scale)) parts = scale.map((s) => (typeof s === "number" ? s : Number.parseFloat(String(s))));
-  const finite = parts.filter((n) => Number.isFinite(n)).map((n) => Math.abs(n));
-  return finite.length > 0 ? Math.max(...finite) : 1;
-}
-
 /** Pack.custom_model_data (Oraxen/Nexo) — links cmd-dispatched items to their config key. */
 function extractCmd(item: unknown): number | undefined {
   if (item === null || typeof item !== "object") return undefined;
@@ -499,12 +471,7 @@ function extractDisplayName(item: unknown): string | undefined {
   const obj = item as Record<string, unknown>;
   // Oraxen displayname / Nexo customname / ItemsAdder display_name / itemname,
   // plus plain `name` (custom plugins like oxywire).
-  const raw =
-    obj["displayname"] ?? obj["customname"] ?? obj["display_name"] ?? obj["itemname"] ?? obj["name"];
-  if (typeof raw !== "string") return undefined;
-  const stripped = raw
-    .replace(/[§&][0-9a-fk-orx]/gi, "") // legacy colour codes
-    .replace(/<[^<>]+>/g, "") // MiniMessage tags
-    .trim();
-  return stripped.length > 0 ? stripped : undefined;
+  return stripFormatting(
+    obj["displayname"] ?? obj["customname"] ?? obj["display_name"] ?? obj["itemname"] ?? obj["name"],
+  );
 }
