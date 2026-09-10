@@ -58,9 +58,29 @@ function blendImages(a: RgbaImage, b: RgbaImage, t: number): RgbaImage {
   return { width: a.width, height: a.height, data: out };
 }
 
+/**
+ * Ceiling on the baked flipbook cycle. The LCM of several coprime strip cycles
+ * grows fast, and every tick slot costs a stitched atlas PNG in the pack; past
+ * this the animation is subsampled instead (see maxAnimationFrames).
+ */
+const MAX_TIMELINE_TICKS = 600;
+
 function gcd(a: number, b: number): number {
   while (b !== 0) [a, b] = [b, a % b];
   return a;
+}
+
+/**
+ * Lowest common multiple, guarded against a zero/negative cycle length so a
+ * malformed mcmeta cannot collapse the timeline or make it unbounded.
+ */
+function lcm(a: number, b: number): number {
+  if (a <= 0 || b <= 0) return Math.max(1, a, b);
+  const product = (a / gcd(a, b)) * b;
+  // A pack with several coprime frametimes can push the true LCM into the
+  // thousands of ticks; every slot is a stitched atlas, so cap the cycle rather
+  // than emit a pack that is mostly animation frames.
+  return Math.min(product, MAX_TIMELINE_TICKS);
 }
 
 /**
@@ -267,7 +287,14 @@ function convertModel(
   // frame by real time, so every strip plays at its own correct speed.
   const animated = [...loaded.values()].filter((t) => t.frames.length > 1);
   const unit = animated.length > 0 ? animated.map((t) => t.frametime).reduce(gcd) : 1;
-  const durationTicks = Math.max(1, ...animated.map((t) => t.frames.length * t.frametime));
+  // LCM, not max: with a 6-tick and an 8-tick strip, a max of 8 makes the
+  // 6-tick one restart mid-cycle every time the timeline wraps, so it visibly
+  // rewinds. The LCM is the first tick where every strip is simultaneously back
+  // at frame 0, which is the only seamless loop point.
+  const durationTicks = Math.max(
+    1,
+    animated.map((t) => t.frames.length * t.frametime).reduce(lcm, 1),
+  );
   const fullSlots = Math.ceil(durationTicks / unit);
   // 0 = unlimited: keep the full animation (default).
   const frameCap = ctx.options.maxAnimationFrames > 0 ? ctx.options.maxAnimationFrames : fullSlots;
@@ -312,7 +339,14 @@ function convertModel(
     alphaBleed(frameAtlas.image);
     if (f === 0) atlas = frameAtlas;
 
-    const hash = timeOp("atlas.hash", () => fastHash(frameAtlas.image.data));
+    // Key on the dimensions too: two atlases can hold identical bytes at
+    // different shapes (a 2x8 and a 4x4 of the same flat colour), and the
+    // geometry is emitted with its own texture_width/height — reusing the other
+    // shape's PNG would make every UV sample the wrong region.
+    const hash = timeOp(
+      "atlas.hash",
+      () => `${frameAtlas.image.width}x${frameAtlas.image.height}:${fastHash(frameAtlas.image.data)}`,
+    );
     const byContent = atlasCache.get(hash);
     if (byContent !== undefined) {
       selectionCache.set(selKey, byContent);
@@ -567,24 +601,6 @@ function cmdOf(variant: PendingGeometry["variant"]): number | undefined {
     (p) => p.type === "range_dispatch" && p.property === "custom_model_data",
   );
   return p !== undefined && "threshold" in p ? p.threshold : undefined;
-}
-
-/**
- * GeyserDisplayEntity y-offset for a furniture model: negate the model's
- * vertical centre in blocks. Java model units are 1/16 block; the extension's
- * default -0.5 corresponds to a model centred at y=8, so this generalises it to
- * any height (rotations ignored — the axis-aligned span is a good approximation
- * for the near-upright furniture models this targets).
- */
-function furnitureOffsetFromElements(elements: JavaElement[]): number {
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const el of elements) {
-    minY = Math.min(minY, el.from[1], el.to[1]);
-    maxY = Math.max(maxY, el.from[1], el.to[1]);
-  }
-  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return -0.5;
-  return -((minY + maxY) / 2 / 16);
 }
 
 function pickIcon(

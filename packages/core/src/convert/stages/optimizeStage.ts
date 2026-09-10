@@ -31,6 +31,58 @@ const ZOPFLI_MIN_BYTES = 4096;
 /** Below this many decoded textures in a chunk, the pool round-trip isn't worth it. */
 const ENCODE_POOL_MIN = 8;
 
+/**
+ * Output this pipeline generated itself. These already went through encodePng,
+ * so a re-encode reproduces the same bytes and is discarded — pure wasted work.
+ */
+const GENERATED_PNG_PREFIXES = [
+  "textures/geyser_custom/",
+  "font/",
+  "textures/painting/",
+  "textures/entity/chest/",
+];
+
+/**
+ * Budget for one decode batch, in pixels. The old bound was a flat 64 files,
+ * which is fine for 16px sprites and about a gigabyte of resident RGBA once a
+ * pack ships 2048px textures — the exact blow-up the chunking was meant to
+ * prevent. 16M pixels is ~64 MB of RGBA regardless of how big each file is.
+ */
+const DECODE_PIXEL_BUDGET = 16 * 1024 * 1024;
+
+/**
+ * Group paths into batches whose decoded size stays inside
+ * {@link DECODE_PIXEL_BUDGET}. Dimensions come from the PNG header, so this
+ * costs a 24-byte read per file rather than a decode.
+ */
+function* chunkByPixels(ctx: ConversionContext, paths: string[]): Generator<string[]> {
+  let batch: string[] = [];
+  let pixels = 0;
+  for (const path of paths) {
+    const size = pngPixelCount(ctx.bedrock.read(path));
+    if (batch.length > 0 && pixels + size > DECODE_PIXEL_BUDGET) {
+      yield batch;
+      batch = [];
+      pixels = 0;
+    }
+    batch.push(path);
+    pixels += size;
+  }
+  if (batch.length > 0) yield batch;
+}
+
+/** width*height straight from the IHDR, or a nominal size when unreadable. */
+function pngPixelCount(bytes: Uint8Array | undefined): number {
+  if (bytes === undefined || bytes.length < 24) return 16 * 16;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint32(16);
+  const height = view.getUint32(20);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return 16 * 16;
+  }
+  return width * height;
+}
+
 export const optimizeStage: PipelineStage = {
   name: "optimize",
   async run(ctx: ConversionContext): Promise<void> {
@@ -57,11 +109,19 @@ export const optimizeStage: PipelineStage = {
     }
     // Also sweep unreferenced .ogg files — soundsStage copies every .ogg from
     // the pack, but only those referenced by sounds.json are actually used.
-    const referencedSounds = collectReferencedSounds(ctx);
-    for (const path of ctx.bedrock.list({ prefix: "sounds/", suffix: ".ogg" })) {
-      if (referencedSounds.has(path)) continue;
-      ctx.bedrock.delete(path);
-      swept++;
+    //
+    // Only when a definitions file was actually produced. A pack can ship sounds
+    // with no sounds.json at all (the server plays them by path via Geyser), and
+    // then the reference set is empty because there is nothing to read — not
+    // because nothing is used. Sweeping on that emptiness deleted every sound in
+    // the pack while the report still listed each one as converted.
+    if (ctx.bedrock.has("sounds/sound_definitions.json")) {
+      const referencedSounds = collectReferencedSounds(ctx);
+      for (const path of ctx.bedrock.list({ prefix: "sounds/", suffix: ".ogg" })) {
+        if (referencedSounds.has(path)) continue;
+        ctx.bedrock.delete(path);
+        swept++;
+      }
     }
 
     // --- 1. Merge duplicate textures (all paths, not just geyser_custom). ---
@@ -98,14 +158,18 @@ export const optimizeStage: PipelineStage = {
     // samples textures at 8-bit) but not bit-identical. 8-bit sources — the
     // overwhelming majority — round-trip exactly.
     let reencoded = 0;
+    // Only textures copied verbatim from the Java pack are worth re-encoding.
+    // Everything this pipeline generated already came out of encodePng, so
+    // re-encoding it is deterministic busy-work that can never win the
+    // size comparison below — atlases, glyph sheets, the painting atlas and the
+    // stitched chest composites all fall in that bucket.
     const passthrough = ctx.bedrock
       .list({ suffix: ".png" })
-      .filter((p) => !p.startsWith("textures/geyser_custom/"));
+      .filter((p) => !GENERATED_PNG_PREFIXES.some((prefix) => p.startsWith(prefix)));
     const encoder = ctx.options.pngEncoder;
-    const CHUNK = 64;
-    for (let i = 0; i < passthrough.length; i += CHUNK) {
+    for (const batch of chunkByPixels(ctx, passthrough)) {
       const decoded: { path: string; origLen: number; image: RgbaImage }[] = [];
-      for (const path of passthrough.slice(i, i + CHUNK)) {
+      for (const path of batch) {
         const bytes = ctx.bedrock.read(path)!;
         try {
           decoded.push({ path, origLen: bytes.length, image: decodePng(bytes) });

@@ -30,8 +30,11 @@ export function fitPathName(name: string, reserved: number): string {
   if (name.length <= budget) return name;
   const hash = fastHashString(name).slice(0, HASH_CHARS);
   // Pathologically small budget (a template with almost no room): the hash
-  // alone still identifies the name uniquely.
-  if (budget <= hash.length + 1) return hash.slice(0, Math.max(1, budget));
+  // alone still identifies the name uniquely. Never truncate below the full
+  // hash — a 1-character name has 16 possible values, so two models would
+  // overwrite each other's geometry and attachable, and the path would still
+  // exceed MAX_PACK_PATH, which is the one thing this module exists to prevent.
+  if (budget <= hash.length + 1) return hash;
   return name.slice(0, budget - hash.length - 1).replace(/_+$/, "") + "_" + hash;
 }
 

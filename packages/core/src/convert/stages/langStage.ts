@@ -39,7 +39,13 @@ export const langStage: PipelineStage = {
       for (const [key, value] of entries) {
         // Java positional args (%1$s, %2$d, %3$f, …) → Bedrock's %1 / %2 syntax;
         // .lang format: key=value, newlines escaped.
-        const converted = value.replace(/%(\d+)\$[sdefgxXcboh]/g, "%$1").replace(/\r?\n/g, "%1");
+        const converted = value
+          .replace(/%(\d+)\$[sdefgxXcboh]/g, "%$1")
+          // A .lang entry is one line, so a real newline becomes the escape
+          // sequence \n. NOT "%1": that is a positional parameter reference, so
+          // the client would substitute an argument in place of the line break
+          // (and reuse the same one when a converted %1$s is already present).
+          .replace(/\r?\n/g, "\\n");
         lines.push(`${key}=${converted}`);
       }
       ctx.bedrock.writeText(`texts/${code}.lang`, lines.join("\n") + "\n");

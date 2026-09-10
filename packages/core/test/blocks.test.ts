@@ -162,3 +162,44 @@ describe("Geyser block-state registry keys", () => {
     ).toBe(true);
   });
 });
+
+describe("animated custom block textures", () => {
+  it("points the flipbook at the terrain key blocksStage actually registered", async () => {
+    // Bedrock resolves atlas_tile against terrain_texture.json. An atlas_tile
+    // derived from the filename matches no key, so the block silently never
+    // animates — and a duplicate copy of the texture ships with it.
+    const zip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 15 } }),
+      "assets/minecraft/blockstates/note_block.json": JSON.stringify({
+        variants: {
+          "instrument=hat,note=0,powered=false": { model: "ia:block/magic_ore" },
+        },
+      }),
+      "assets/ia/models/block/magic_ore.json": JSON.stringify({
+        parent: "minecraft:block/cube_all",
+        textures: { all: "ia:block/magic_ore" },
+      }),
+      // 16x64 vertical strip = a 4-frame flipbook.
+      "assets/ia/textures/block/magic_ore.png": png(16, 64),
+      "assets/ia/textures/block/magic_ore.png.mcmeta": JSON.stringify({ animation: { frametime: 2 } }),
+    });
+
+    const result = await convertPack(zip, { packName: "Anim", optimizePack: false });
+    const out = readZip(result.mcpack);
+    const flipbooks = JSON.parse(out.readText("textures/flipbook_textures.json")!) as {
+      atlas_tile: string;
+      flipbook_texture: string;
+    }[];
+    const terrain = JSON.parse(out.readText("textures/terrain_texture.json")!) as {
+      texture_data: Record<string, { textures: string }>;
+    };
+
+    expect(flipbooks.length).toBeGreaterThan(0);
+    for (const entry of flipbooks) {
+      // The tile must be a real terrain key, and the flipbook must reference
+      // the same texture that key resolves to (no second copy).
+      expect(Object.keys(terrain.texture_data)).toContain(entry.atlas_tile);
+      expect(entry.flipbook_texture).toBe(terrain.texture_data[entry.atlas_tile]!.textures);
+    }
+  });
+});

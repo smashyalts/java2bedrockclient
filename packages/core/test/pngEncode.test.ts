@@ -107,3 +107,20 @@ describe("passthrough texture re-encode", () => {
     expect(entry!.outputs![0]).toMatch(/[1-9]\d* texture\(s\) re-encoded smaller/);
   });
 });
+
+describe("texture cache safety", () => {
+  it("hands mutating callers a private copy, not the shared decode", async () => {
+    const { decodeCached, decodeCachedForEdit, tint, encodePng } = await import("../src/image/png.js");
+    const source = encodePng({ width: 2, height: 2, data: new Uint8Array(2 * 2 * 4).fill(255) });
+    const read = (): Uint8Array => source;
+    const cache = new Map<string, { width: number; height: number; data: Uint8Array } | undefined>();
+
+    // A stage that mutates (dyeing a leather icon, alpha-bleeding a block face)
+    // must not write into the instance every other stage reads back.
+    const editable = decodeCachedForEdit(read, "x.png", cache)!;
+    tint(editable, 0xff0000);
+    const shared = decodeCached(read, "x.png", cache)!;
+    expect(shared.data[1]).toBe(255); // green channel untouched on the cached copy
+    expect(editable.data[1]).toBe(0); // but zeroed on the caller's copy
+  });
+});

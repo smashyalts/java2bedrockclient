@@ -1,4 +1,4 @@
-import { createImage, type RgbaImage } from "./png.js";
+import { blit, createImage, type RgbaImage } from "./png.js";
 import { timeOp } from "../report/timings.js";
 
 export interface AtlasPlacement {
@@ -69,10 +69,3 @@ function buildAtlasUntimed(textures: Map<string, RgbaImage>): Atlas {
   return { image, placements };
 }
 
-function blit(dst: RgbaImage, src: RgbaImage, dx: number, dy: number): void {
-  for (let y = 0; y < src.height; y++) {
-    const srcRow = y * src.width * 4;
-    const dstRow = ((dy + y) * dst.width + dx) * 4;
-    dst.data.set(src.data.subarray(srcRow, srcRow + src.width * 4), dstRow);
-  }
-}

@@ -66,11 +66,29 @@ interface StageResolved {
   resolved: ResolvedModel;
 }
 
+/**
+ * Reserve `bow_<name>` so no later group reuses it. The identifier registry is
+ * the same namespace the emitted identifier lives in, so one claim protects
+ * both the identifier and every file path built from the name.
+ */
+function uniqueBowName(ctx: ConversionContext, base: string): string {
+  let name = base;
+  for (let i = 2; ctx.usedBedrockIdentifiers.has(`bow_${name}`); i++) name = `${base}_${i}`;
+  ctx.usedBedrockIdentifiers.add(`bow_${name}`);
+  return name;
+}
+
 function convertBowPullGroup(ctx: ConversionContext, group: BowPullGroup): void {
   const origin = group.origin;
-  const name = fitPathName(
-    safeName(group.itemModelId ?? group.baseItem ?? group.standbyModel),
-    BOW_TEXTURE_RESERVED,
+  // Uniquify BEFORE anything is written: every texture, geometry, animation and
+  // render-controller path below is derived from `name`, so two groups whose ids
+  // collapse to the same fitted name (truncation makes that easy) would have the
+  // second silently overwrite the first's files while the first's attachable
+  // still pointed at them. Reserving the name here covers the paths and the
+  // bedrock identifier in one step.
+  const name = uniqueBowName(
+    ctx,
+    fitPathName(safeName(group.itemModelId ?? group.baseItem ?? group.standbyModel), BOW_TEXTURE_RESERVED),
   );
 
   // Resolve every model: standby first (frame 0 = "default"), then pull stages.
@@ -131,15 +149,7 @@ function convertBowPullGroup(ctx: ConversionContext, group: BowPullGroup): void 
       })();
   const displayName = resolveBowDisplayName(ctx, group);
 
-  const identifierBase = `bow_${name}`;
-  let identifierName = identifierBase;
-  if (ctx.usedBedrockIdentifiers.has(identifierName)) {
-    for (let i = 2; ctx.usedBedrockIdentifiers.has(identifierName); i++) {
-      identifierName = `${identifierBase}_${i}`;
-    }
-  }
-  ctx.usedBedrockIdentifiers.add(identifierName);
-  const bedrockId = `geyser_custom:${identifierName}`;
+  const bedrockId = `geyser_custom:bow_${name}`;
 
   const definition: GeyserItemDefinition = {
     type: "definition",
@@ -155,7 +165,7 @@ function convertBowPullGroup(ctx: ConversionContext, group: BowPullGroup): void 
   (ctx.geyserMappings.items[baseItem] ??= []).push(definition);
   ctx.definitionTextures.set(definition, [...built.allTextureIds]);
 
-  const attachablePath = fitFilePath("attachables/geyser_custom/", safeName(identifierName), ".json");
+  const attachablePath = fitFilePath("attachables/geyser_custom/", safeName(`bow_${name}`), ".json");
   ctx.bedrock.writeJson(
     attachablePath,
     buildBowPullAttachable({
@@ -241,7 +251,25 @@ function buildSpriteBow(
       },
     } as JavaElement,
   ];
-  const stdImg = loadFirstFrame(ctx, texIds[0]!) ?? { width: 16, height: 16, data: new Uint8Array(16 * 16 * 4) };
+  // Every stage texture was loaded successfully above (the loop returns early
+  // otherwise), so this cannot be missing — no fallback needed.
+  const stdImg = loadFirstFrame(ctx, texIds[0]!)!;
+  // The quad is shared by every frame, so its UV space is stage 0's. Bedrock
+  // normalises UVs by the declared texture_width/height, so a differently-sized
+  // stage still maps edge-to-edge — but a different *aspect* does not, and the
+  // frame renders stretched. Flag it rather than silently distorting.
+  const oddSizes = texIds
+    .map((id) => loadFirstFrame(ctx, id))
+    .filter((img): img is RgbaImage => img !== undefined)
+    .filter((img) => img.width * stdImg.height !== stdImg.width * img.height);
+  if (oddSizes.length > 0) {
+    ctx.report.approximated(
+      "bow-pull",
+      stages[0]!.resolved.id,
+      `${oddSizes.length} pull stage texture(s) have a different aspect ratio to the standby frame — ` +
+        `all frames share one quad, so those render stretched`,
+    );
+  }
   const geo = buildGeometry(geometryId, elements, () => ({ x: 0, y: 0, width: stdImg.width, height: stdImg.height }), {
     width: stdImg.width,
     height: stdImg.height,

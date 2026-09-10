@@ -2,7 +2,7 @@ import type { ConversionContext, GeyserItemDefinition, PipelineStage } from "../
 import { ARMOR_SLOTS, buildArmorAttachable, buildElytraAttachable, type ArmorPiece } from "../../bedrock/armor.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
 import { safeName } from "./itemsStage.js";
-import { alphaBleed, decodeCached, encodePng, firstFrame } from "../../image/png.js";
+import { alphaBleed, cloneImage, decodeCached, encodePng, firstFrame } from "../../image/png.js";
 import { fitFilePath, fitPathName } from "../../util/packPath.js";
 
 /**
@@ -132,8 +132,7 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
     if (img.height > img.width && ctx.java.has(src + ".mcmeta")) {
       img = firstFrame(img);
     } else {
-      // Copy — alphaBleed mutates in place, and the cached image is shared.
-      img = { width: img.width, height: img.height, data: img.data.slice() };
+      img = cloneImage(img);
     }
     alphaBleed(img);
     const out = `textures/geyser_custom/armor/${set.name}_${key}`;
@@ -145,7 +144,6 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
   // Find item mapping definitions that look like pieces of this set.
   const material = parseResourceLocation(set.id).path.toLowerCase();
   const namespace = parseResourceLocation(set.id).namespace.toLowerCase();
-  let matchedAny = false;
 
   for (const piece of PIECES) {
     const layerKey = piece === "leggings" ? "layer2" : "layer1";
@@ -193,7 +191,6 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
         ...def.components,
         "minecraft:equippable": { slot: ARMOR_SLOTS[piece] },
       };
-      matchedAny = true;
     }
   }
 
@@ -231,11 +228,14 @@ function convertArmorSet(ctx: ConversionContext, set: ArmorSet): void {
         ...def.components,
         "minecraft:equippable": { slot: "chest" },
       };
-      matchedAny = true;
     }
   }
 
-  if (matchedAny) {
+  // Report whatever was emitted, not only sets that matched an item mapping. A
+  // set with no match still writes its layer textures and standalone
+  // attachables, and gating the report on matchedAny left those files entirely
+  // absent from the conversion report.
+  if (outputs.length > 0) {
     ctx.report.converted("armor", set.origin, outputs);
   }
 }

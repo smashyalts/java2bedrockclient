@@ -17,6 +17,11 @@ export function decodePng(bytes: Uint8Array): RgbaImage {
 /**
  * Decode a PNG from a Java pack path, memoizing the result on the provided
  * cache. Multiple stages that need the same texture share one decode.
+ *
+ * The returned image is the **shared** cached instance. `tint`, `alphaBleed`,
+ * `blendOver` and `blit` all mutate in place, so anything that mutates what it
+ * gets back must go through {@link decodeCachedForEdit} instead — otherwise it
+ * silently rewrites the texture every other stage will read.
  */
 export function decodeCached(
   read: (path: string) => Uint8Array | undefined,
@@ -35,6 +40,30 @@ export function decodeCached(
   }
   cache.set(path, result);
   return result;
+}
+
+/**
+ * Same as {@link decodeCached}, but hands back a private copy safe to mutate.
+ *
+ * The cache exists so one texture is decoded once, but it means every caller
+ * holds the *same* `RgbaImage`. Dyeing a leather icon or alpha-bleeding a block
+ * face in place therefore leaks into every later consumer of that path — a
+ * different item rendering pre-tinted, an atlas hashing differently, an indexed
+ * palette gaining colours the source never had. Callers that mutate use this;
+ * callers that only read stay on the shared decode.
+ */
+export function decodeCachedForEdit(
+  read: (path: string) => Uint8Array | undefined,
+  path: string,
+  cache: Map<string, RgbaImage | undefined>,
+): RgbaImage | undefined {
+  const image = decodeCached(read, path, cache);
+  return image === undefined ? undefined : cloneImage(image);
+}
+
+/** Deep copy, so in-place mutators cannot reach the original. */
+export function cloneImage(image: RgbaImage): RgbaImage {
+  return { width: image.width, height: image.height, data: image.data.slice() };
 }
 
 function decodePngUntimed(bytes: Uint8Array): RgbaImage {

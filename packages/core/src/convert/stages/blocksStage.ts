@@ -6,7 +6,7 @@ import type {
 } from "../context.js";
 import { resolveModel, resolveTextureRef, type ResolvedModel } from "../../resolve/modelResolver.js";
 import { buildGeometry } from "../../bedrock/geometry.js";
-import { alphaBleed, decodeCached, encodePng, firstFrame, type RgbaImage } from "../../image/png.js";
+import { alphaBleed, decodeCached, decodeCachedForEdit, encodePng, firstFrame, type RgbaImage } from "../../image/png.js";
 import { buildAtlas } from "../../image/atlas.js";
 import { safeName } from "./itemsStage.js";
 import { fitFilePath, fitPathName } from "../../util/packPath.js";
@@ -90,6 +90,9 @@ export const blocksStage: PipelineStage = {
   },
 };
 
+/** What {@link buildBlockDefinition} produces: a definition before its state key and rotation are attached. */
+type BuiltBlockDefinition = Partial<GeyserBlockDefinition> & { name?: string };
+
 function convertBlockstates(
   ctx: ConversionContext,
   block: string,
@@ -100,6 +103,8 @@ function convertBlockstates(
   const overrides: Record<string, Partial<GeyserBlockDefinition>> = {};
   let base: GeyserBlockDefinition | undefined;
   let converted = 0;
+  /** model id -> its built definition (undefined = tried and unusable). */
+  const builtByModel = new Map<string, BuiltBlockDefinition | undefined>();
 
   for (const [stateKey, variantRaw] of Object.entries(variants)) {
     const variant = Array.isArray(variantRaw) ? variantRaw[0] : variantRaw;
@@ -109,20 +114,30 @@ function convertBlockstates(
     const loc = parseResourceLocation(variant.model);
     if (!ctx.java.has(`assets/${loc.namespace}/models/${loc.path}.json`)) continue;
 
-    const resolved = resolveModel(ctx.java, variant.model);
+    const resolved = resolveModel(ctx.java, variant.model, ctx.resolvedModels);
     if (resolved === undefined) continue;
 
-    const def = buildBlockDefinition(ctx, variant.model, resolved);
-    if (def === undefined) {
+    // One model commonly backs many states (a note_block maps a dozen
+    // instrument/note combinations to the same model). Building it per state
+    // re-stitched the atlas, re-alpha-bled it and re-encoded the PNG at zlib 9
+    // every time, all writing to the same output path. Build once per model.
+    if (!builtByModel.has(variant.model)) {
+      builtByModel.set(variant.model, buildBlockDefinition(ctx, variant.model, resolved));
+    }
+    const built = builtByModel.get(variant.model);
+    if (built === undefined) {
       ctx.report.skipped("blocks", `${path} [${stateKey}]`, `model ${variant.model} has no usable elements/textures`);
       continue;
     }
+    // Copy per state: `transformation` below is written onto the definition, and
+    // states sharing a model must not inherit each other's rotation.
+    const def: BuiltBlockDefinition = { ...built };
     // Blockstate x/y rotations (directional blocks/furniture). Java rotates
     // clockwise; Bedrock transformations rotate counter-clockwise.
     const rx = normalizeAngle(-(variant.x ?? 0));
     const ry = normalizeAngle(-(variant.y ?? 0));
     if (rx !== 0 || ry !== 0) {
-      (def as Record<string, unknown>)["transformation"] = { rotation: [rx, ry, 0] };
+      (def as unknown as Record<string, unknown>)["transformation"] = { rotation: [rx, ry, 0] };
     }
     const geyserStateKey = normalizeStateKey(stateKey, properties);
     if (geyserStateKey === undefined) {
@@ -135,7 +150,7 @@ function convertBlockstates(
     }
     overrides[geyserStateKey] = def;
     if (base === undefined) {
-      base = { name: def.name ?? safeName(variant.model), ...def };
+      base = { ...def, name: def.name ?? safeName(variant.model) };
       // A rotated variant's transformation must not become the block default.
       delete (base as unknown as Record<string, unknown>)["transformation"];
     }
@@ -193,7 +208,7 @@ function buildBlockDefinition(
   ctx: ConversionContext,
   modelId: string,
   resolved: ResolvedModel,
-): (Partial<GeyserBlockDefinition> & { name?: string }) | undefined {
+): BuiltBlockDefinition | undefined {
   const name = fitPathName(safeName(modelId), BLOCK_TEXTURE_PATH_RESERVED);
   const elements = resolved.elements ?? [];
   if (elements.length === 0) return undefined;
@@ -290,13 +305,25 @@ function buildBlockDefinition(
   };
 }
 
+/**
+ * The terrain_texture.json key this stage gives a java block texture. Exported
+ * so the flipbook stage can point `atlas_tile` at the key that actually exists
+ * — Bedrock resolves atlas_tile against terrain_texture.json, so a key invented
+ * from the filename never matches and the block simply never animates.
+ */
+export function terrainTextureKey(textureId: string): string {
+  return `gcb_${fitPathName(safeName(textureId), BLOCK_TEXTURE_PATH_RESERVED)}`;
+}
+
 /** Copy a java texture into the pack and register it in terrain_texture.json. */
 function registerTerrainTexture(ctx: ConversionContext, textureId: string): string | undefined {
+  const key = terrainTextureKey(textureId);
   const textureName = fitPathName(safeName(textureId), BLOCK_TEXTURE_PATH_RESERVED);
-  const key = `gcb_${textureName}`;
   if (ctx.terrainTextures.has(key)) return key;
   const texPath = ctx.java.assetPath("textures", textureId, ".png");
-  const image = decodeCached(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
+  // For edit: alphaBleed below writes into the image, and the cached instance is
+  // shared with every other stage that reads this texture.
+  const image = decodeCachedForEdit(ctx.java.read.bind(ctx.java), texPath, ctx.textureCache);
   if (image === undefined) return undefined;
   let img = image;
   if (img.height > img.width && ctx.java.has(texPath + ".mcmeta")) {
@@ -309,7 +336,17 @@ function registerTerrainTexture(ctx: ConversionContext, textureId: string): stri
   return key;
 }
 
+/**
+ * Register a stitched atlas under a terrain key.
+ *
+ * Unlike {@link registerTerrainTexture} this always writes a fresh entry, so it
+ * must not reuse a key: a non-cube model and a face texture can safeName to the
+ * same string ("oraxen:block/ruby_block" both ways), and silently repointing the
+ * existing key would make the earlier block render this one's atlas.
+ */
 function registerTerrainTextureRaw(ctx: ConversionContext, key: string, path: string): string {
-  ctx.terrainTextures.set(key, { textures: path });
-  return key;
+  let unique = key;
+  for (let i = 2; ctx.terrainTextures.has(unique); i++) unique = `${key}_${i}`;
+  ctx.terrainTextures.set(unique, { textures: path });
+  return unique;
 }

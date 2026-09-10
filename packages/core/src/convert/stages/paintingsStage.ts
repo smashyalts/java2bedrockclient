@@ -7,6 +7,12 @@ import { createImage, decodeCached, encodePng, scaleNearest, type RgbaImage } fr
  * pre-1.14 Java paintings_kristoffer_zetterstrand.png layout.
  * [x, y, w, h] in base pixels.
  */
+/**
+ * Largest upscale of the 256px base atlas we will build: 16 gives a 4096px
+ * atlas, exactly Bedrock's texture cap.
+ */
+const MAX_ATLAS_SCALE = 16;
+
 const PAINTING_SLOTS: Record<string, [number, number, number, number]> = {
   kebab: [0, 0, 16, 16],
   aztec: [16, 0, 16, 16],
@@ -60,6 +66,22 @@ export const paintingsStage: PipelineStage = {
       scale = Math.max(scale, Math.round(img.width / slot[2]));
     }
     if (images.size === 0) return;
+
+    // Clamp the upscale. The atlas is 256 base pixels square, so the factor
+    // multiplies memory by its square: an HD 4096px painting in a 16px slot
+    // asks for factor 256 and a 65536² image — ~17 GB, which aborts the whole
+    // conversion. Bedrock also caps pack textures at 4096 anyway, so anything
+    // past that is unusable even if it allocated.
+    const cappedScale = Math.min(Math.max(1, scale), MAX_ATLAS_SCALE);
+    if (cappedScale < scale) {
+      ctx.report.approximated(
+        "paintings",
+        "textures/painting/kz.png",
+        `source paintings are ${scale}× the atlas slot size; downscaled to ${cappedScale}× so the ` +
+          `atlas stays within Bedrock's ${256 * MAX_ATLAS_SCALE}px texture limit`,
+      );
+    }
+    scale = cappedScale;
 
     const atlas = createImage(256 * scale, 256 * scale);
     for (const [name, img] of images) {

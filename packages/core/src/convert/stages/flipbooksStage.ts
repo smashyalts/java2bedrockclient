@@ -1,6 +1,7 @@
 import type { ConversionContext, PipelineStage } from "../context.js";
 import { remapVanillaTexture } from "../../data/vanillaTextureMap.js";
 import { parseLenientJson } from "../../java/json.js";
+import { terrainTextureKey } from "./blocksStage.js";
 import { frameTicks } from "../../java/mcmeta.js";
 
 interface McmetaAnimation {
@@ -30,14 +31,15 @@ export const flipbooksStage: PipelineStage = {
         // be animated — emit flipbook entries for them.
         const customBlockMatch = texturePath.match(/^assets\/([^/]+)\/textures\/block\/(.+)$/);
         if (customBlockMatch) {
-          const flipbookTexture = `textures/${customBlockMatch[1]}/block/${customBlockMatch[2]!.slice(0, -".png".length)}`;
-          const atlasTile = customBlockMatch[2]!.slice(0, -".png".length).replace(/\//g, ".");
-          // Copy the texture into the Bedrock pack — texturesStage skips custom
-          // namespaces, so we do it here only for animated block textures.
-          const texData = ctx.java.read(texturePath);
-          if (texData !== undefined) {
-            ctx.bedrock.write(flipbookTexture + ".png", texData);
-          }
+          // Reuse the exact terrain key and texture blocksStage registered.
+          // Inventing a tile name from the filename produced a key Bedrock
+          // could not resolve (so the block never animated) *and* shipped a
+          // second copy of the texture that the optimizer could not sweep.
+          const textureId = `${customBlockMatch[1]}:block/${customBlockMatch[2]!.slice(0, -".png".length)}`;
+          const atlasTile = terrainTextureKey(textureId);
+          const registered = ctx.terrainTextures.get(atlasTile);
+          if (registered === undefined) continue;
+          const flipbookTexture = registered.textures;
           const anim = meta.animation;
           const entry: Record<string, unknown> = {
             flipbook_texture: flipbookTexture,

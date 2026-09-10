@@ -126,7 +126,10 @@ export function buildGeometry(
     cubes.push(cube);
   }
 
-  if (options?.flipFacing === true) flip180AboutY(cubes);
+  // The flip can introduce uv_rotation on the up/down faces, which is a 1.21+
+  // geometry feature — fold that into the format_version decision below rather
+  // than emitting a rotation an older client would ignore.
+  if (options?.flipFacing === true && flip180AboutY(cubes)) usedUvRotation = true;
 
   // Visible bounds from actual extents — undersized bounds make large models
   // (greatswords, backpacks) pop out of view at screen edges.
@@ -186,8 +189,9 @@ export function buildGeometry(
  * way, so the whole model reads as 180° off. Adding 180° to the Y angle turns
  * each limb to match. Our cubes only ever carry a single-axis rotation.
  */
-function flip180AboutY(cubes: BedrockCube[]): void {
-  if (cubes.length === 0) return;
+function flip180AboutY(cubes: BedrockCube[]): boolean {
+  if (cubes.length === 0) return false;
+  let addedRotation = false;
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const c of cubes) {
     minX = Math.min(minX, c.origin[0]);
@@ -209,7 +213,35 @@ function flip180AboutY(cubes: BedrockCube[]): void {
       ];
     }
     if (c.pivot) c.pivot = [2 * cx - c.pivot[0], c.pivot[1], 2 * cz - c.pivot[2]];
+    // Bedrock's per-face `uv` keys are world directions, not the cube's own
+    // sides. Moving the mesh alone leaves each face's artwork on the direction
+    // it started on, so a turned model shows its front on its back. The origin
+    // transform above is a point reflection in XZ, which for an axis-aligned box
+    // is exactly a rigid 180° turn — so the faces swap in pairs with no
+    // mirroring, and up/down keep their pixels but end up rotated half a turn.
+    const swap = (a: JavaFaceName, b: JavaFaceName): void => {
+      const tmp = c.uv[a];
+      c.uv[a] = c.uv[b];
+      c.uv[b] = tmp;
+      if (c.uv[a] === undefined) delete c.uv[a];
+      if (c.uv[b] === undefined) delete c.uv[b];
+    };
+    swap("north", "south");
+    swap("east", "west");
+    for (const faceName of ["up", "down"] as const) {
+      const face = c.uv[faceName] as (BedrockFaceUv & { uv_rotation?: number }) | undefined;
+      if (face === undefined) continue;
+      face.uv_rotation = wrapUvRotation((face.uv_rotation ?? 0) + 180);
+      if (face.uv_rotation === 0) delete face.uv_rotation;
+      else addedRotation = true;
+    }
   }
+  return addedRotation;
+}
+
+/** Bedrock accepts face UV rotations of 0/90/180/270 only. */
+function wrapUvRotation(deg: number): number {
+  return ((deg % 360) + 360) % 360;
 }
 
 /** Wrap an angle in degrees to (−180, 180]. */
