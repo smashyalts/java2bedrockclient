@@ -79,6 +79,20 @@ describe("parallel PNG encoder", () => {
     const paths = a.list().sort();
     expect(b.list().sort()).toEqual(paths);
     for (const p of paths) {
+      if (p === "manifest.json") {
+        // The manifest carries a conversion timestamp, so two runs legitimately
+        // differ here whenever they straddle a second. Compare everything else
+        // exactly and the manifest with that one field removed — this test is
+        // about the encoder, not about the clock.
+        const strip = (raw: string): unknown => {
+          const meta = JSON.parse(raw) as { header: Record<string, unknown>; modules: Record<string, unknown>[] };
+          delete meta.header["version"];
+          for (const m of meta.modules) delete m["version"];
+          return meta;
+        };
+        expect(strip(b.readText(p)!)).toEqual(strip(a.readText(p)!));
+        continue;
+      }
       expect([...b.read(p)!]).toEqual([...a.read(p)!]);
     }
   });

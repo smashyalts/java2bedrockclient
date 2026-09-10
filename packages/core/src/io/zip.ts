@@ -36,7 +36,10 @@ export function readZip(bytes: Uint8Array): VirtualFs {
  * only wastes CPU. Text gets max deflate; JSON is pre-minified so this is cheap.
  */
 export function writeZip(vfs: VirtualFs): Uint8Array {
-  const tree: Zippable = {};
+  // Null-prototype: entry names come from untrusted archives, and assigning to
+  // "__proto__" on a normal object literal invokes the inherited setter instead
+  // of creating an own property — the file would vanish from the output.
+  const tree: Zippable = Object.create(null) as Zippable;
   for (const [path, data] of vfs.entries()) {
     const alreadyCompressed = /\.(png|ogg|jpg|jpeg|zip|mcpack)$/i.test(path);
     tree[path] = alreadyCompressed ? [data, { level: 0 }] : [data, { level: 9 }];

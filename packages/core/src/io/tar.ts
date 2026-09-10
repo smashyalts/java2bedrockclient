@@ -18,8 +18,23 @@ function readStr(block: Uint8Array, offset: number, length: number): string {
   return decoder.decode(block.subarray(offset, end));
 }
 
-/** Parse an octal numeric field (size, etc.), tolerating spaces/NULs. */
+/**
+ * Parse a numeric header field (size, etc.), tolerating spaces/NULs.
+ *
+ * GNU tar encodes any value that will not fit the 11 octal digits — i.e. an
+ * entry over 8 GiB — in base 256, flagged by the high bit of the first byte.
+ * parseInt cannot read that and returned 0, which made the reader advance a
+ * single block and then interpret the entry's payload as tar headers, filling
+ * the pack with garbage entries instead of failing.
+ */
 function readOctal(block: Uint8Array, offset: number, length: number): number {
+  const first = block[offset] ?? 0;
+  if ((first & 0x80) !== 0) {
+    // Base-256: big-endian, high bit of byte 0 is the marker (and sign bit).
+    let value = first & 0x7f;
+    for (let i = 1; i < length; i++) value = value * 256 + (block[offset + i] ?? 0);
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  }
   const s = readStr(block, offset, length).trim();
   if (s === "") return 0;
   const n = parseInt(s, 8);
@@ -64,7 +79,11 @@ export function parseTar(bytes: Uint8Array): { name: string; data: Uint8Array }[
         name = prefix ? `${prefix}/${base}` : base;
       }
       overrideName = undefined;
-      if (name !== "") files.push({ name, data: data.slice() });
+      // Old tars record directories as a regular entry whose name ends in "/".
+      // The zip reader skips those explicitly; without the same guard the two
+      // readers behind readZipDetailed disagreed on what a file is, and the
+      // phantom entries reached the merge report and the output zip.
+      if (name !== "" && !name.endsWith("/")) files.push({ name, data: data.slice() });
     } else {
       // Directory ('5') or other metadata — skip, clear any pending name.
       overrideName = undefined;

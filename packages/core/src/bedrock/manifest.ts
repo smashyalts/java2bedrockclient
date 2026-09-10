@@ -24,13 +24,19 @@ export interface ManifestOptions {
 
 /**
  * Monotonically increasing version derived from the conversion time. Bedrock
- * caches packs by UUID+version; keeping the UUID stable but bumping the
- * version on every conversion makes clients re-download without users having
- * to clear their resource cache.
+ * caches packs by UUID+version; keeping the UUID stable but bumping the version
+ * on every conversion makes clients re-download without users having to clear
+ * their resource cache.
+ *
+ * Resolution is seconds, not minutes. The normal workflow — convert, test,
+ * change an option, re-convert, re-upload — finishes well inside a minute, and
+ * at minute resolution the second pack carried a version the client had already
+ * seen, so it kept serving the old one and the change looked like it had been
+ * ignored. Each field is 16 bits, so seconds still give ~136 years of headroom.
  */
 function timestampVersion(): [number, number, number] {
-  const minutes = Math.floor(Date.now() / 60_000);
-  return [1, Math.floor(minutes / 65536) % 65536, minutes % 65536];
+  const seconds = Math.floor(Date.now() / 1000);
+  return [1, Math.floor(seconds / 65536) % 65536, seconds % 65536];
 }
 
 export function buildManifest(options: ManifestOptions): object {

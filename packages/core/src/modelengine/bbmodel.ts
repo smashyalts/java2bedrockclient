@@ -83,6 +83,12 @@ export function isCube(el: BbElement): boolean {
 
 /** A texture extracted from a bbmodel's embedded base64 source. */
 export interface BbExtractedTexture {
+  /**
+   * Position in the bbmodel's own `textures` array. Faces reference textures by
+   * that index, but this list is compacted (entries with no usable image data
+   * are dropped), so the two must never be conflated.
+   */
+  index: number;
   name: string;
   bytes: Uint8Array;
   width: number;
@@ -110,6 +116,7 @@ export function extractTextures(model: BbModel): BbExtractedTexture[] {
     const width = tex.width && tex.width > 0 ? tex.width : (model.resolution?.width ?? 16);
     const height = tex.height && tex.height > 0 ? tex.height : (model.resolution?.height ?? 16);
     out.push({
+      index: i,
       name: sanitizeTextureName(tex.name ?? `texture_${i}`),
       bytes,
       width,
@@ -122,13 +129,18 @@ export function extractTextures(model: BbModel): BbExtractedTexture[] {
   return out;
 }
 
-/** Strip a trailing .png and lowercase; keep it filesystem-safe. */
+/**
+ * Strip a trailing .png and lowercase; keep it filesystem-safe. Falls back to a
+ * placeholder when nothing printable survives ("###" would otherwise yield the
+ * empty string and a file called ".png").
+ */
 export function sanitizeTextureName(name: string): string {
-  return name
+  const clean = name
     .replace(/\.png$/i, "")
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "");
+  return clean.length > 0 ? clean : "texture";
 }
 
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

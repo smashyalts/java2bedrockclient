@@ -82,6 +82,14 @@ function scanVfs(
     result.files.set(`${dir}/${modelId}.geo.json`, encoder.encode(JSON.stringify(geometry)));
 
     const textures = extractTextures(model);
+    // Names come from the blueprint and are only sanitized, so "Body.png" and
+    // "body" both land on "body" — one file silently overwriting the other and
+    // both collapsing into a single config entry. Uniquify like model ids and
+    // bone names already do.
+    const usedTextureNames = new Set<string>();
+    for (const tex of textures) tex.name = uniqueId(tex.name, usedTextureNames);
+    /** bbmodel texture index → extracted texture (the list is compacted). */
+    const byIndex = new Map(textures.map((t) => [t.index, t]));
     const perTextureUvSize: Record<string, [number, number]> = {};
     const animTextures: Record<string, { fps: number; frames: number }> = {};
     const resW = model.resolution?.width && model.resolution.width > 0 ? model.resolution.width : 16;
@@ -108,7 +116,10 @@ function scanVfs(
       const binding: Record<string, string[]> = {};
       for (const [boneName, indices] of boneTextures) {
         for (const idx of indices) {
-          const tname = textures[idx]?.name;
+          // Faces store the bbmodel's own index; `textures` is compacted, so
+          // indexing it directly shifts every binding once one texture is
+          // skipped and the mob renders with swapped skins.
+          const tname = byIndex.get(idx)?.name;
           if (tname === undefined) continue;
           (binding[tname] ??= []).push(boneName);
         }

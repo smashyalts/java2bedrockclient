@@ -52,7 +52,12 @@ export function bbmodelToAnimations(
       if (channels.rotation || channels.position || channels.scale) bones[boneName] = channels;
     }
     if (Object.keys(bones).length === 0) continue;
-    const name = `animation.${modelId}.${sanitize(anim.name) ?? "anim"}`;
+    // Uniquify: "attack.1" and "attack_1" both sanitize to "attack_1", and the
+    // second would silently replace the first — losing an animation the
+    // MythicMobs config still references by name.
+    const base = `animation.${modelId}.${sanitize(anim.name) ?? "anim"}`;
+    let name = base;
+    for (let i = 2; name in animations; i++) name = `${base}_${i}`;
     animations[name] = {
       loop: anim.loop === "loop" || anim.loop === true ? true : undefined,
       animation_length: anim.length,

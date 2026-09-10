@@ -41,8 +41,13 @@ export class VirtualFs {
   }
 
   write(path: string, data: Uint8Array): void {
-    this.files.set(VirtualFs.normalize(path), data);
-    this.invalidate();
+    const key = VirtualFs.normalize(path);
+    // Only a NEW key changes the sorted path set. Stages routinely overwrite
+    // paths they just enumerated (the optimizer re-encoding textures in place),
+    // and invalidating there forced a full re-sort of every path in the pack on
+    // the next list().
+    if (!this.files.has(key)) this.invalidate();
+    this.files.set(key, data);
   }
 
   writeText(path: string, text: string): void {

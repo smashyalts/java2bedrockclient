@@ -23,6 +23,8 @@ export interface ZipReadResult {
 const EOCD_SIG = 0x06054b50;
 const CDIR_SIG = 0x02014b50;
 const LOCAL_SIG = 0x04034b50;
+const ZIP64_EOCD_SIG = 0x06064b50;
+const ZIP64_LOCATOR_SIG = 0x07064b50;
 /** Refuse to allocate more than this for one entry (defends lying size fields). */
 const MAX_ENTRY_SIZE = 512 * 1024 * 1024;
 
@@ -41,13 +43,27 @@ export function readZipResilient(bytes: Uint8Array): ZipReadResult {
   }
   if (eocd === -1) throw new Error("not a zip file (no end-of-central-directory record)");
 
-  const totalEntries = view.getUint16(eocd + 10, true);
-  let cdirOffset = view.getUint32(eocd + 16, true);
+  let totalEntries = view.getUint16(eocd + 10, true);
+  let claimedCdirOffset = view.getUint32(eocd + 16, true);
+  let cdirSize = view.getUint32(eocd + 12, true);
+
+  // ZIP64. Packs from ItemsAdder/Nexo routinely pass 65,535 entries, and any
+  // writer that does stores 0xFFFF / 0xFFFFFFFF sentinels here and puts the real
+  // values in a ZIP64 record. Reading only the 32-bit fields made those archives
+  // fail as "central directory not found" despite being perfectly valid.
+  if (totalEntries === 0xffff || claimedCdirOffset === 0xffffffff || cdirSize === 0xffffffff) {
+    const zip64 = findZip64Eocd(view, bytes, eocd);
+    if (zip64 !== undefined) {
+      totalEntries = zip64.totalEntries;
+      claimedCdirOffset = zip64.cdirOffset;
+      cdirSize = zip64.cdirSize;
+    }
+  }
+  let cdirOffset = claimedCdirOffset;
 
   // Junk may be prepended to the file, shifting real offsets. Locate the actual
   // central directory start by scanning for its signature near the claimed offset.
   if (cdirOffset >= bytes.length || view.getUint32(cdirOffset, true) !== CDIR_SIG) {
-    const cdirSize = view.getUint32(eocd + 12, true);
     const guess = eocd - cdirSize;
     if (guess >= 0 && guess < bytes.length - 4 && view.getUint32(guess, true) === CDIR_SIG) {
       cdirOffset = guess;
@@ -56,7 +72,7 @@ export function readZipResilient(bytes: Uint8Array): ZipReadResult {
     }
   }
   /** Difference between claimed and actual positions (prepended junk). */
-  const shift = cdirOffset - view.getUint32(eocd + 16, true);
+  const shift = cdirOffset - claimedCdirOffset;
 
   const decoder = new TextDecoder("utf-8");
   let ptr = cdirOffset;
@@ -129,4 +145,44 @@ function extractEntry(
     return inflateSync(compressed);
   }
   throw new Error(`unsupported compression method ${method}`);
+}
+
+/**
+ * Locate the ZIP64 end-of-central-directory record and read the real entry
+ * count, directory size and directory offset from it.
+ *
+ * Layout: the 20-byte ZIP64 *locator* sits immediately before the ordinary
+ * EOCD and points at the ZIP64 EOCD itself. The locator is searched for rather
+ * than assumed adjacent, because a zip comment or prepended junk can shift it.
+ */
+function findZip64Eocd(
+  view: DataView,
+  bytes: Uint8Array,
+  eocd: number,
+): { totalEntries: number; cdirSize: number; cdirOffset: number } | undefined {
+  const locator = eocd - 20;
+  let zip64 = -1;
+  if (locator >= 0 && view.getUint32(locator, true) === ZIP64_LOCATOR_SIG) {
+    // 64-bit offset; only the low half is usable in a browser-sized buffer.
+    const offset = Number(view.getBigUint64(locator + 8, true));
+    if (offset >= 0 && offset + 56 <= bytes.length && view.getUint32(offset, true) === ZIP64_EOCD_SIG) {
+      zip64 = offset;
+    }
+  }
+  if (zip64 === -1) {
+    // Offsets are relative to the archive start, so prepended junk breaks them.
+    // Scan backwards for the record instead.
+    for (let i = eocd - 56; i >= 0; i--) {
+      if (view.getUint32(i, true) === ZIP64_EOCD_SIG) {
+        zip64 = i;
+        break;
+      }
+    }
+  }
+  if (zip64 === -1) return undefined;
+  const totalEntries = Number(view.getBigUint64(zip64 + 32, true));
+  const cdirSize = Number(view.getBigUint64(zip64 + 40, true));
+  const cdirOffset = Number(view.getBigUint64(zip64 + 48, true));
+  if (!Number.isSafeInteger(totalEntries) || totalEntries < 0) return undefined;
+  return { totalEntries, cdirSize, cdirOffset };
 }
