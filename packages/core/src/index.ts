@@ -11,5 +11,7 @@ export { zopfliRecompressPng } from "./image/zopfliPng.js";
 export { encodePng, decodeCached } from "./image/png.js";
 export { deterministicUuid, buildManifest } from "./bedrock/manifest.js";
 export { parseOraxenConfigZip, parseOraxenConfigZips, type OraxenHints } from "./java/oraxen.js";
+export { mergeJavaPacks, type MergeInput, type MergeResult, type MergeConflict } from "./java/mergePacks.js";
+export { isDatapack, parseDatapack } from "./java/datapack.js";
 export { extractBowPullGroups, type BowPullGroup, type BowPullStage } from "./java/itemVariants.js";
 export { buildBowPullRenderController, buildBowPullAttachable } from "./bedrock/attachable.js";

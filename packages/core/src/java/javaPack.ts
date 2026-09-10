@@ -48,7 +48,11 @@ export class JavaPack {
     const candidates = new Set<string>();
     for (const path of vfs.list({ suffix: "pack.mcmeta" })) {
       const parts = path.split("/");
-      if (parts.length === 2) candidates.add(parts[0]! + "/");
+      // The list filter is a plain suffix test, so "Backup/oldpack.mcmeta"
+      // reaches here too. Requiring the exact basename stops a stray file
+      // naming a directory as the pack root, which would hide the real assets
+      // and emit an empty pack from a run that looked successful.
+      if (parts.length === 2 && parts[1] === "pack.mcmeta") candidates.add(parts[0]! + "/");
     }
     if (candidates.size === 1) {
       return new JavaPack(vfs, [...candidates][0]!);

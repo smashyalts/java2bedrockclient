@@ -25,11 +25,19 @@ export function App() {
   const [configZips, setConfigZips] = useState<{ name: string; bytes: Uint8Array }[]>([]);
   // The pack is staged on drop, not converted — the user adds config zips and
   // tweaks options first, then presses Convert.
-  const [packFile, setPackFile] = useState<File | null>(null);
+  const [packFiles, setPackFiles] = useState<File[]>([]);
   // Both refs point at the same worker: the raw handle so it can be terminated,
   // the comlink proxy for calls.
   const workerRef = useRef<Worker | null>(null);
   const apiRef = useRef<Remote<WorkerApi> | null>(null);
+  /**
+   * Incremented on every cancel. Reading the staged files happens before the
+   * worker exists, so Cancel during that window terminated nothing and the
+   * in-flight run went on to spawn a worker and overwrite the idle screen with
+   * a result the user had already dismissed. Each run captures the value and
+   * drops its own updates once it no longer matches.
+   */
+  const runId = useRef(0);
 
   const getWorker = useCallback((): Remote<WorkerApi> => {
     if (apiRef.current === null) {
@@ -49,17 +57,41 @@ export function App() {
   }, []);
 
   const startConvert = useCallback(
-    async (file: File) => {
-      const packName = file.name.replace(/\.(zip|mcpack|tgz|tar\.gz)$/i, "");
-      setPhase({ kind: "converting", stage: "reading file", done: 0, total: 1, fileName: file.name });
+    async (files: File[]) => {
+      const myRun = runId.current;
+      const stale = (): boolean => runId.current !== myRun;
+      const first = files[0]!;
+      // Name a merged pack after its inputs, not a constant. packagingStage
+      // derives both manifest UUIDs from packName, so a fixed "Merged Pack"
+      // gave every merged pack anyone ever produced the same identity —
+      // Bedrock keys installed packs by UUID, so two different merged packs
+      // would overwrite each other on the client and a server could not ship
+      // both.
+      const strip = (n: string): string => n.replace(/\.(zip|mcpack|tgz|tar\.gz)$/i, "");
+      const packName =
+        files.length === 1
+          ? strip(first.name)
+          : `Merged: ${files.map((f) => strip(f.name)).join(" + ")}`;
+      const label = files.length === 1 ? first.name : `${files.length} packs`;
+      setPhase({ kind: "converting", stage: "reading files", done: 0, total: 1, fileName: label });
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
+        // Read concurrently — order is merge priority, and Promise.all keeps it.
+        // Sequential reads left the UI pinned at 0% for seconds on a big stack.
+        const packs = await Promise.all(
+          files.map(async (f) => new Uint8Array(await f.arrayBuffer())),
+        );
+        if (stale()) return;
         const api = getWorker();
         const result = await api.convert(
-          transfer(bytes, [bytes.buffer]),
-          { packName, attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, animate2dHeldItems },
+          transfer(packs, packs.map((p) => p.buffer)),
+          {
+            packName,
+            packNames: files.map((f) => f.name),
+            attachableMaterial, modernBaseItem, maxAnimationFrames, optimizePack, maxCompression, animate2dHeldItems,
+          },
           proxy((stage: string, done: number, total: number) => {
-            setPhase({ kind: "converting", stage, done, total, fileName: file.name });
+            if (stale()) return;
+            setPhase({ kind: "converting", stage, done, total, fileName: label });
           }),
           configZips.map((c) => {
             // Copy once — configZips state may be reused on a later conversion,
@@ -69,8 +101,10 @@ export function App() {
           }),
           oxipngLevel,
         );
-        setPhase({ kind: "done", result, fileName: file.name, packName });
+        if (stale()) return;
+        setPhase({ kind: "done", result, fileName: label, packName });
       } catch (err) {
+        if (stale()) return;
         setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     },
@@ -83,6 +117,7 @@ export function App() {
   }, [terminateWorker]);
 
   const cancelConversion = useCallback(() => {
+    runId.current++;
     terminateWorker();
     setPhase({ kind: "idle" });
   }, [terminateWorker]);
@@ -127,7 +162,7 @@ export function App() {
 
       {phase.kind === "idle" && (
         <>
-          <DropZone onFile={setPackFile} selected={packFile} />
+          <DropZone onFiles={setPackFiles} selected={packFiles} />
 
           {/* Compression controls — surfaced (not buried under Advanced) since size is what most people tune. */}
           <div
@@ -204,13 +239,18 @@ export function App() {
             }}
           >
             <label style={labelStyle}>
-              Plugin config zips (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder /
+              Plugin configs & datapacks (optional, multiple allowed) — Oraxen / Nexo / ItemsAdder /
               CraftEngine items and HMCCosmetics cosmetics. Zip each plugin's config folder (e.g.{" "}
               <code>plugins/Nexo/items/</code>,{" "}
               <code>plugins/CraftEngine/resources/</code>,{" "}
               <code>plugins/HMCCosmetics/cosmetics/</code>) — upload them together or as separate
               zips. Enables real base items, display names, armor sets, furniture, and
               back-cosmetic positioning.
+              <br />
+              Using a <strong>datapack</strong> instead of a plugin (Stellarity, Crop &amp; Kettle,
+              anything using <code>minecraft:item_model</code>)? Drop the datapack zip here too —
+              its loot tables, recipes and advancements are what say which vanilla item each custom
+              model is attached to. Without it every item falls back to the modern base item below.
               <input
                 type="file"
                 accept=".zip"
@@ -305,21 +345,21 @@ export function App() {
           <div style={{ textAlign: "center", marginTop: 24 }}>
             <button
               onClick={() => {
-                if (packFile !== null) void startConvert(packFile);
+                if (packFiles.length > 0) void startConvert(packFiles);
               }}
-              disabled={packFile === null}
+              disabled={packFiles.length === 0}
               style={{
                 ...buttonStyle,
                 padding: "14px 36px",
                 fontSize: 17,
-                opacity: packFile === null ? 0.45 : 1,
-                cursor: packFile === null ? "not-allowed" : "pointer",
+                opacity: packFiles.length === 0 ? 0.45 : 1,
+                cursor: packFiles.length === 0 ? "not-allowed" : "pointer",
               }}
             >
               Convert pack
             </button>
             <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
-              {packFile === null
+              {packFiles.length === 0
                 ? "Add a resource pack above to get started."
                 : "Add any plugin config zips and set your options first — then convert."}
             </div>

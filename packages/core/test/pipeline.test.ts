@@ -78,4 +78,34 @@ describe("convertPack", () => {
     const uuidB = JSON.parse(readZip(b.mcpack).readText("manifest.json")!).header.uuid;
     expect(uuidA).toBe(uuidB);
   });
+  it("fails loudly on an upload it cannot read, instead of shipping an empty pack", async () => {
+    // Merging turned a thrown read error into a caught one, which let a corrupt
+    // or renamed archive sail through every stage and hand the user a
+    // downloadable pack containing nothing.
+    await expect(convertPack(new Uint8Array([1, 2, 3, 4]), { packName: "x" })).rejects.toThrow(
+      /Nothing to convert/,
+    );
+  });
+
+  it("merges two packs, keeping each one's assets and the first one's contested file", async () => {
+    const a = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 34, description: "A" } }),
+      "assets/minecraft/textures/item/apple.png": TINY_PNG,
+      "assets/shared/textures/item/contested.png": TINY_PNG,
+    });
+    const b = fixtureZip({
+      // Zipped from its containing folder — the common packaging mistake.
+      "Inner/pack.mcmeta": JSON.stringify({ pack: { pack_format: 34, description: "B" } }),
+      "Inner/assets/minecraft/textures/item/stick.png": TINY_PNG,
+      "Inner/assets/shared/textures/item/contested.png": new Uint8Array([...TINY_PNG, 0]),
+    });
+    const result = await convertPack([a, b], { packName: "merged", packNames: ["a", "b"], optimizePack: false });
+    const merged = result.report.entries.filter((e) => e.stage === "merge");
+    expect(merged.some((e) => e.source === "2 resource packs merged")).toBe(true);
+    // The nested pack's root was normalised, so its texture came through.
+    const out = readZip(result.mcpack);
+    expect(out.list({ suffix: ".png" }).some((p) => p.includes("stick"))).toBe(true);
+    expect(out.list({ suffix: ".png" }).some((p) => p.includes("apple"))).toBe(true);
+    expect(merged.some((e) => e.source.includes("contested"))).toBe(true);
+  });
 });

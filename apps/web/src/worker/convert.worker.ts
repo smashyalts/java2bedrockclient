@@ -11,7 +11,11 @@ import { createZopfliPool, poolSize } from "./zopfliPool.js";
 
 export interface WorkerApi {
   convert(
-    zipBytes: Uint8Array,
+    /**
+     * One pack, or several to merge into a single Bedrock pack (list order is
+     * priority — the first pack wins any file two of them both define).
+     */
+    zipBytes: Uint8Array | Uint8Array[],
     options: Partial<ConvertOptions>,
     onProgress: (stage: string, done: number, total: number) => void,
     /** Optional plugin config zips (Nexo/Oraxen/ItemsAdder/CraftEngine/HMCCosmetics, any mix). */
@@ -25,7 +29,20 @@ const api: WorkerApi = {
   async convert(zipBytes, options, onProgress, configZips, oxipngLevel) {
     let hintCount: number | undefined;
     if (configZips !== undefined && configZips.length > 0) {
-      const hints = parseOraxenConfigZips(configZips);
+      // Config zips are optional, so a bad one must not kill the run. The
+      // parsers call readZipDetailed with no guard, which throws on a truncated
+      // or mis-named archive — previously taking down a conversion whose actual
+      // resource pack was fine, with an error that named neither the file nor
+      // the fact that it was the optional input.
+      let hints;
+      try {
+        hints = parseOraxenConfigZips(configZips);
+      } catch (err) {
+        throw new Error(
+          `A plugin config / datapack zip could not be read (${err instanceof Error ? err.message : String(err)}). ` +
+            `Remove it and convert again — the resource pack itself is unaffected.`,
+        );
+      }
       options = {
         ...options,
         baseItemHints: hints.baseItems,
@@ -50,7 +67,12 @@ const api: WorkerApi = {
     // it finishes in ~1/cores of the single-threaded time. Each job is bounded
     // by a timeout, so a browser that can't init the wasm keeps the original
     // bytes and the pass still completes (never freezes).
-    const pool = options.maxCompression ? createZopfliPool(poolSize(), oxipngLevel ?? 4) : undefined;
+    // Spawning is eager (unlike the encode pool), so gate on optimizePack too:
+    // optimizeStage returns immediately when it is off, and booting eight
+    // oxipng wasm workers that are then terminated unused puts wasm init on the
+    // critical path of every earlier stage for nothing.
+    const wantsRecompress = options.maxCompression === true && options.optimizePack !== false;
+    const pool = wantsRecompress ? createZopfliPool(poolSize(), oxipngLevel ?? 4) : undefined;
     options = { ...options, pngEncoder: encodePool };
     if (pool !== undefined) options = { ...options, recompressor: pool };
     try {

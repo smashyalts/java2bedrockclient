@@ -1,6 +1,7 @@
 import { readZipDetailed, writeZip } from "../io/zip.js";
 import { VirtualFs } from "../io/vfs.js";
 import { JavaPack } from "../java/javaPack.js";
+import { mergeJavaPacks } from "../java/mergePacks.js";
 import { ConversionReport } from "../report/report.js";
 import { Timings, beginTimings, finishTimings } from "../report/timings.js";
 import {
@@ -57,6 +58,16 @@ export interface ConvertResult {
   timings: ReturnType<Timings["toJSON"]>;
 }
 
+/**
+ * Cap on individually-listed merge conflicts. A pack pair overriding the same
+ * base can collide on thousands of paths; the tail is summarised as a count so
+ * the report stays readable.
+ */
+const MAX_REPORTED_CONFLICTS = 40;
+
+/** Same idea for keys two packs both defined inside one merged file. */
+const MAX_REPORTED_SHADOWED_KEYS = 12;
+
 /** Stages run in order; later milestones insert stages between textures and packaging. */
 const STAGES: PipelineStage[] = [
   texturesStage,
@@ -75,16 +86,41 @@ const STAGES: PipelineStage[] = [
   optimizeStage,
 ];
 
+/**
+ * Convert one Java pack, or merge several into one Bedrock pack.
+ *
+ * Servers commonly run a stack of resource packs, but a Bedrock client can only
+ * be sent a single one — so passing an array merges them first (see
+ * {@link mergeJavaPacks}) and converts the combined tree. Priority is list
+ * order, first wins.
+ */
 export async function convertPack(
-  zipBytes: Uint8Array,
+  zipBytes: Uint8Array | Uint8Array[],
   options?: Partial<ConvertOptions>,
   progress?: ProgressCallback,
 ): Promise<ConvertResult> {
-  const { vfs: inputVfs, failed: unreadable } = readZipDetailed(zipBytes);
+  const packs = Array.isArray(zipBytes) ? zipBytes : [zipBytes];
+  const packNames = options?.packNames ?? [];
+  const merge = mergeJavaPacks(
+    packs.map((bytes, i) => ({ name: packNames[i] ?? `pack ${i + 1}`, bytes })),
+  );
+  const inputVfs = merge.vfs;
+  const unreadable = merge.unreadable.map((u) => ({ name: u.name, reason: u.reason }));
+  // Every upload failed to open, or they opened empty. Merging turned what used
+  // to be a thrown error into a silently "successful" empty pack, so fail loudly
+  // here instead of handing the user a downloadable pack with nothing in it.
+  if (inputVfs.size === 0) {
+    const why =
+      merge.failedPacks.length > 0
+        ? `could not read ${merge.failedPacks.join(", ")} — not a zip/mcpack archive, or corrupt`
+        : "the upload contained no files";
+    throw new Error(`Nothing to convert: ${why}`);
+  }
   const java = JavaPack.open(inputVfs);
 
   const opts: ConvertOptions = {
     packName: options?.packName ?? "Converted Pack",
+    packNames: options?.packNames ?? DEFAULT_OPTIONS.packNames,
     attachableMaterial: options?.attachableMaterial ?? DEFAULT_OPTIONS.attachableMaterial,
     animate2dHeldItems: options?.animate2dHeldItems ?? DEFAULT_OPTIONS.animate2dHeldItems,
     namespaces: options?.namespaces ?? DEFAULT_OPTIONS.namespaces,
@@ -127,12 +163,62 @@ export async function convertPack(
     geometryHandledTextures: new Set(),
     displayEntityMappings: [],
     inferredHostItems: new Map(),
+    definitionHostItems: new Map(),
     resolvedModels: new Map(),
   };
   ctx.configZipProvided = opts.configZipProvided === true;
 
   for (const entry of unreadable) {
     ctx.report.error("ingest", entry.name, `could not extract from zip: ${entry.reason}`);
+  }
+
+  // Merge accounting. Only reported when several packs were combined — a single
+  // pack has nothing to collide with and nothing to say.
+  if (merge.packs.length > 1) {
+    ctx.report.converted(
+      "merge",
+      `${merge.packs.length} resource packs merged`,
+      merge.packs.map((p, i) => `${i + 1}. ${p.name} — ${p.files} file(s)`),
+    );
+    for (const file of merge.mergedFiles) {
+      if (file.shadowedKeys.length === 0) {
+        ctx.report.converted("merge", file.path, [
+          `combined from ${file.sources} packs — entries from every pack kept`,
+        ]);
+        continue;
+      }
+      // The union kept every key, but a key two packs both defined can only
+      // hold one value. Name them: this is how a wrong item name or a silent
+      // sound in game gets explained.
+      const names = file.shadowedKeys.slice(0, MAX_REPORTED_SHADOWED_KEYS);
+      ctx.report.approximated(
+        "merge",
+        file.path,
+        `combined from ${file.sources} packs, but ${file.shadowedKeys.length} key(s) were ` +
+          `defined by more than one pack and kept the first pack's value: ` +
+          `${names.join(", ")}${file.shadowedKeys.length > names.length ? ", …" : ""}. ` +
+          `Reorder the uploads to change which one wins.`,
+      );
+    }
+    // Same path in more than one pack: only one copy can ship. Say so, because
+    // in game this looks like a texture that simply failed to apply.
+    const shown = merge.conflicts.slice(0, MAX_REPORTED_CONFLICTS);
+    for (const conflict of shown) {
+      ctx.report.approximated(
+        "merge",
+        conflict.path,
+        `defined by ${conflict.overridden.length + 1} packs — kept "${conflict.kept}", ` +
+          `overrode ${conflict.overridden.map((n) => `"${n}"`).join(", ")}. ` +
+          `Reorder the uploads to change which one wins.`,
+      );
+    }
+    if (merge.conflicts.length > shown.length) {
+      ctx.report.approximated(
+        "merge",
+        `${merge.conflicts.length - shown.length} more conflicting path(s)`,
+        `listed the first ${MAX_REPORTED_CONFLICTS}; all resolved the same way (first pack wins)`,
+      );
+    }
   }
 
   const now = (): number =>
