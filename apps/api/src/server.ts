@@ -69,8 +69,13 @@ async function handleConvert(req: http.IncomingMessage, res: http.ServerResponse
     }
     options.maxAnimationFrames = n;
   }
+  // oxipngLevel is validated for forward compatibility but has no effect here:
+  // it is a browser-build knob (apps/web threads it into its oxipng worker
+  // pool), while this Node path recompresses with zopfli, which takes no level.
+  // The range check stays so a caller gets told about a nonsensical value
+  // rather than having it silently accepted.
   const oxipngLvl = url.searchParams.get("oxipngLevel");
-  if (oxipngLvl) {
+  if (oxipngLvl !== null) {
     const n = Number(oxipngLvl);
     if (!Number.isFinite(n) || n < 1 || n > 6) {
       res.writeHead(400, { "content-type": "text/plain" });
@@ -140,6 +145,13 @@ function readMultipart(
     const out: { packBytes?: Uint8Array; configZips: Uint8Array[] } = { configZips: [] };
     bb.on("file", (field, stream) => {
       const chunks: Buffer[] = [];
+      // Busboy's fileSize limit TRUNCATES rather than failing: without this the
+      // handler silently converts the first MAX_UPLOAD bytes of an oversized
+      // zip, producing a pack missing assets (or an opaque "not a zip" error).
+      // The raw-body path already rejects, so reject here too.
+      stream.on("limit", () => {
+        reject(new Error("upload too large"));
+      });
       stream.on("data", (c: Buffer) => chunks.push(c));
       stream.on("end", () => {
         const bytes = new Uint8Array(Buffer.concat(chunks));

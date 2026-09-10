@@ -17,6 +17,13 @@ interface Reply {
  * undefined and we encode that one in-process, so output is never lost.
  */
 export function createEncodePool(size: number): PngEncoder & { dispose(): void } {
+  /**
+   * Watchdogs for in-flight encodes. Cleared on dispose so a timer cannot fire
+   * against a terminated pool — it would run the in-process fallback and keep
+   * every queued image alive through its closure long after teardown.
+   */
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  let disposed = false;
   const count = Math.max(1, size);
   let workers: Worker[] | undefined;
 
@@ -32,6 +39,9 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
 
   return {
     dispose(): void {
+      disposed = true;
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
       for (const w of workers ?? []) w.terminate();
       workers = undefined;
     },
@@ -50,7 +60,21 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
         const finish = (id: number, png: Uint8Array | undefined): void => {
           // A worker that failed returns undefined — encode that image here so
           // the result is always present.
-          results[id] = png ?? encodePng(images[id]!);
+          //
+          // Guarded: this runs inside message/error/timeout handlers of a
+          // Promise with no reject path, and it re-runs the very call that just
+          // failed in the worker. An exception escaping here means resolve() is
+          // never reached and the conversion hangs forever with a frozen
+          // progress bar. An empty result is recoverable; a hang is not.
+          if (png !== undefined) {
+            results[id] = png;
+          } else {
+            try {
+              results[id] = encodePng(images[id]!);
+            } catch {
+              results[id] = new Uint8Array(0);
+            }
+          }
           done++;
           if (done === images.length) resolve(results);
         };
@@ -66,6 +90,7 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
             worker.removeEventListener("error", onError);
             worker.removeEventListener("messageerror", onMessageError);
             clearTimeout(timer);
+            timers.delete(timer);
             finish(id, e.data.png);
             pump(worker);
           };
@@ -76,6 +101,7 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
             worker.removeEventListener("error", onError);
             worker.removeEventListener("messageerror", onMessageError);
             clearTimeout(timer);
+            timers.delete(timer);
             finish(id, undefined); // in-process fallback
             pump(worker);
           };
@@ -87,6 +113,7 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
             worker.removeEventListener("error", onError);
             worker.removeEventListener("messageerror", onMessageError);
             clearTimeout(timer);
+            timers.delete(timer);
             finish(id, undefined);
             pump(worker);
           };
@@ -95,12 +122,15 @@ export function createEncodePool(size: number): PngEncoder & { dispose(): void }
           // Safety timeout: if the worker is silently killed (OOM, tab crash),
           // the message/error events never fire. Fall back to in-process encode.
           const timer = setTimeout(() => {
+            timers.delete(timer);
+            if (disposed) return;
             worker.removeEventListener("message", onMessage);
             worker.removeEventListener("error", onError);
             worker.removeEventListener("messageerror", onMessageError);
             finish(id, undefined);
             pump(worker);
           }, 30000);
+          timers.add(timer);
 
           // Do NOT transfer the input buffer — the core keeps the image for the
           // in-process fallback if the worker returns undefined. Structured

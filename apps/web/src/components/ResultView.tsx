@@ -6,7 +6,10 @@ function download(name: string, data: Uint8Array | string, mime: string) {
   const blob =
     typeof data === "string"
       ? new Blob([data], { type: mime })
-      : new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer], { type: mime });
+      // Blob honours a view's byteOffset/byteLength, so passing the Uint8Array
+      // directly avoids duplicating the whole archive in memory at the one
+      // click the user cannot cheaply retry.
+      : new Blob([data as BlobPart], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

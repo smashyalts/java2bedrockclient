@@ -28,9 +28,21 @@ function spawn(): Worker {
 export function createZopfliPool(size: number, level = 4): PngRecompressor & { dispose(): void } {
   let workers: Worker[] = [];
   for (let i = 0; i < Math.max(1, size); i++) workers.push(spawn());
+  /**
+   * Every in-flight job's watchdog. dispose() has to clear these: a timer that
+   * fires after teardown terminates an already-dead worker and then spawns a
+   * *replacement* that nothing will ever terminate, so cancelling a conversion
+   * leaked a fresh wasm worker per pending job — and the closures kept every
+   * large PNG in the pack alive with them.
+   */
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  let disposed = false;
 
   return {
     dispose(): void {
+      disposed = true;
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
       for (const w of workers) w.terminate();
       workers = [];
     },
@@ -63,6 +75,7 @@ export function createZopfliPool(size: number, level = 4): PngRecompressor & { d
             if (e.data.id !== id || settled) return;
             settled = true;
             clearTimeout(timer);
+            timers.delete(timer);
             worker.removeEventListener("message", onMessage);
             finish(id, e.data.result);
             pump(worker, slot);
@@ -70,7 +83,8 @@ export function createZopfliPool(size: number, level = 4): PngRecompressor & { d
           worker.addEventListener("message", onMessage);
 
           const timer = setTimeout(() => {
-            if (settled) return;
+            timers.delete(timer);
+            if (settled || disposed) return;
             settled = true;
             worker.removeEventListener("message", onMessage);
             worker.terminate();
@@ -79,6 +93,7 @@ export function createZopfliPool(size: number, level = 4): PngRecompressor & { d
             workers[slot] = replacement;
             pump(replacement, slot);
           }, JOB_TIMEOUT_MS);
+          timers.add(timer);
 
           // Do NOT transfer the input buffer — the VFS still holds it and needs
           // it intact when zopfli returns undefined (no shrink). Structured
