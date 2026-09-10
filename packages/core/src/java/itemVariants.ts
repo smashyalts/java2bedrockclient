@@ -354,6 +354,10 @@ function flattenNode(
         if (node.fallback) flattenNode(node.fallback, predicates, ctx, priority);
         return;
       }
+      // Each case outranks the fallback, which matches every state and would
+      // otherwise shadow them depending on how Geyser happens to order equal
+      // priorities — the same trap range_dispatch above already avoids.
+      let caseIndex = 0;
       for (const c of node.cases ?? []) {
         const whens = Array.isArray(c.when) ? c.when : [c.when];
         for (const when of whens) {
@@ -370,7 +374,19 @@ function flattenNode(
               reason: `select case "${whenStr}" on ${property} has no Geyser equivalent — that state keeps the default look on Bedrock`,
             });
           } else if (whenStr !== undefined) {
-            flattenNode(c.model, [...predicates, { type: "match", property: geyserProperty, value: whenStr }], ctx, priority);
+            // Emit the canonical constant, not the pack's spelling. The guard
+            // above compares case-insensitively, so "ARROW" passes it — and
+            // then Geyser's Enum.valueOf on the verbatim value throws, taking
+            // the definition down. That is the exact failure the guard exists
+            // to prevent.
+            const value = allowed !== undefined ? whenStr.toLowerCase() : whenStr;
+            caseIndex++;
+            flattenNode(
+              c.model,
+              [...predicates, { type: "match", property: geyserProperty, value }],
+              ctx,
+              (priority ?? 0) + caseIndex,
+            );
           } else {
             ctx.out.unsupported.push({
               origin: ctx.origin,
@@ -379,7 +395,8 @@ function flattenNode(
           }
         }
       }
-      if (node.fallback) flattenNode(node.fallback, predicates, ctx, priority);
+      // Fallback matches when no case does — lowest priority.
+      if (node.fallback) flattenNode(node.fallback, predicates, ctx, priority ?? 0);
       return;
     }
     case "special": {

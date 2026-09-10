@@ -15,6 +15,7 @@ import {
   parseCraftEngineDoc,
   type CraftEngineState,
 } from "./craftEngine.js";
+import { isDatapack, parseDatapack } from "./datapack.js";
 
 /**
  * Extracts base-item hints from item-plugin server config YAMLs.
@@ -211,6 +212,14 @@ function parseOne(
   craftEngine: CraftEngineState,
 ): void {
   const { vfs } = readZipDetailed(zipBytes);
+
+  // A datapack carries its item/material bindings in loot tables, recipes and
+  // advancements rather than YAML, so read those too. Deliberately not an early
+  // return: one upload can legitimately hold both (a zipped `plugins/` folder,
+  // or a plugin shipped alongside its companion datapack), and skipping the
+  // YAML loop there would drop every base item, display name, furniture flag
+  // and back-cosmetic position the configs declare.
+  if (isDatapack(vfs)) parseDatapack(vfs, hints);
 
   for (const path of listYaml(vfs)) {
     const text = vfs.readText(path);

@@ -151,3 +151,51 @@ describe("predicate values Geyser reads as enums", () => {
     }
   });
 });
+
+describe("select predicates", () => {
+  /** A select node whose cases and fallback both resolve to real models. */
+  function selectPack(when: unknown): Uint8Array {
+    return packWith({
+      type: "minecraft:select",
+      property: "minecraft:charge_type",
+      cases: [{ when, model: { type: "model", model: "nexo:dyed" } }],
+      fallback: { type: "model", model: "nexo:plain" },
+    });
+  }
+
+  async function definitions(zip: Uint8Array): Promise<Record<string, unknown>[]> {
+    const result = await convertPack(zip, { packName: "t", optimizePack: false });
+    const mappings = JSON.parse(result.geyserMappings ?? '{"items":{}}') as {
+      items: Record<string, Record<string, unknown>[]>;
+    };
+    return Object.values(mappings.items).flat();
+  }
+
+  it("emits the canonical enum constant, not the pack's spelling", async () => {
+    // Geyser resolves this value with Enum.valueOf. "ARROW" passes our
+    // case-insensitive guard but throws there, taking the definition down —
+    // the exact failure the guard exists to prevent.
+    const defs = await definitions(selectPack("ARROW"));
+    const values = defs.flatMap((d) =>
+      ((d["predicate"] as Record<string, unknown>[] | undefined) ?? []).map((p) => p["value"]),
+    );
+    expect(values).toContain("arrow");
+    expect(values).not.toContain("ARROW");
+  });
+
+  it("ranks a select case above the fallback that would otherwise shadow it", async () => {
+    const defs = await definitions(selectPack("arrow"));
+    const withPredicate = defs.find(
+      (d) => ((d["predicate"] as unknown[] | undefined) ?? []).length > 0,
+    );
+    const fallback = defs.find(
+      (d) => ((d["predicate"] as unknown[] | undefined) ?? []).length === 0,
+    );
+    expect(withPredicate).toBeDefined();
+    expect(fallback).toBeDefined();
+    // The fallback matches every state, so it must not outrank the specific case.
+    const casePriority = Number(withPredicate!["priority"] ?? 0);
+    const fallbackPriority = Number(fallback!["priority"] ?? 0);
+    expect(casePriority).toBeGreaterThan(fallbackPriority);
+  });
+});

@@ -6,8 +6,9 @@ import {
   type ItemVariant,
 } from "../../java/itemVariants.js";
 import { resolveModel, spriteLayers, inferHostItemFromModel, type ResolvedModel } from "../../resolve/modelResolver.js";
+import { inferHostItemFromDefinition } from "../../java/definitionHost.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
-import { alphaBleed, compositeLayers, decodeCached, encodePng, firstFrame, tint, type RgbaImage } from "../../image/png.js";
+import { alphaBleed, cloneImage, compositeLayers, decodeCached, encodePng, firstFrame, tint, type RgbaImage } from "../../image/png.js";
 import { buildGeometry } from "../../bedrock/geometry.js";
 import { buildDisplayAnimations } from "../../bedrock/animations.js";
 import { buildFlipbookRenderController, buildItemAttachable } from "../../bedrock/attachable.js";
@@ -206,8 +207,12 @@ function convertSpriteVariant(ctx: ConversionContext, variant: ItemVariant, reso
       ctx.report.skipped("items", origin, "no layer textures found in pack");
       return;
     }
-    // Java tints layer0 only; overlay layers stay uncoloured.
+    // Java tints layer0 only; overlay layers stay uncoloured. Tint a copy:
+    // firstFrame already returns a fresh image, but the common non-animated
+    // path pushed the shared cached decode, and dyeing that in place would hand
+    // every later consumer of this texture a pre-tinted copy.
     if (colorHint !== undefined && images.length > 0) {
+      images[0] = cloneImage(images[0]!);
       tint(images[0]!, colorHint);
     }
     // Alpha-bleed so bilinear filtering doesn't fringe black at sprite edges.
@@ -486,10 +491,29 @@ function resolveBaseItem(ctx: ConversionContext, variant: ItemVariant): string {
     );
     return inferred;
   }
+  // Last resort before the blunt fallback: a definition that branches on a
+  // property only one vanilla item has (charge_type -> crossbow, bow/pull ->
+  // bow) names its host even when nothing else does. Most custom models parent
+  // to item/generated, so the chain above can't see this.
+  if (variant.source.kind === "modern") {
+    const fromDefinition = inferHostItemFromDefinition(
+      ctx.java,
+      variant.source.itemModelId,
+      ctx.definitionHostItems,
+    );
+    if (fromDefinition !== undefined) {
+      ctx.report.converted(
+        "items-hints",
+        `${variant.origin} → ${variant.model}`,
+        [`host item inferred from the item definition's dispatch property: ${fromDefinition}`],
+      );
+      return fromDefinition;
+    }
+  }
   ctx.report.approximated(
     "items",
     `${variant.origin} → ${variant.model}`,
-    `item-model asset has no fixed host item — mapped under ${ctx.options.modernBaseItem}; upload your Oraxen/Nexo/ItemsAdder/CraftEngine config zip or change the "modern base item" option`,
+    `item-model asset has no fixed host item — mapped under ${ctx.options.modernBaseItem}; upload your Oraxen/Nexo/ItemsAdder/CraftEngine config zip, a datapack, or change the "modern base item" option`,
   );
   ctx.fallbackBaseItemHits++;
   return ctx.options.modernBaseItem;

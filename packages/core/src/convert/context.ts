@@ -7,6 +7,12 @@ import type { RgbaImage } from "../image/png.js";
 export interface ConvertOptions {
   /** Bedrock pack name shown in-game; defaults to Java pack description or zip name. */
   packName: string;
+  /**
+   * Display names for the uploaded pack(s), in the same order, used to say
+   * which pack won a path when several are merged. Purely for reporting —
+   * merging works without it, the packs are just called "pack 1", "pack 2".
+   */
+  packNames: string[];
   /** Material used for generated attachables. */
   attachableMaterial: string;
   /**
@@ -125,6 +131,7 @@ export interface PngRecompressor {
 }
 
 export const DEFAULT_OPTIONS: Omit<ConvertOptions, "packName"> = {
+  packNames: [],
   attachableMaterial: "entity_alphatest_one_sided",
   animate2dHeldItems: false,
   namespaces: [],
@@ -232,6 +239,15 @@ export interface ConversionContext {
    * parent chain is walked at most once per model id.
    */
   inferredHostItems: Map<string, string | undefined>;
+  /**
+   * Cache for {@link inferHostItemFromDefinition}. Deliberately separate from
+   * {@link inferredHostItems}: that one is keyed by *model* id and this by
+   * *item-model* id, and a pack is free to name both the same
+   * ("demo:altar" as model and as item definition). Sharing one map let a
+   * cached `undefined` from the parent-chain walk suppress the definition
+   * lookup entirely for exactly those packs.
+   */
+  definitionHostItems: Map<string, string | undefined>;
   /**
    * Cache for {@link resolveModel} — a variant-heavy pack (dozens of cmd entries
    * on one item) re-resolves the same model's parent chain repeatedly; memoize
