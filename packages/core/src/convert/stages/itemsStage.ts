@@ -343,6 +343,7 @@ export function buildDefinition(
     displayHandheld: boolean;
     protectionValue?: number;
     furnitureVanillaScale?: boolean;
+    furnitureScaleMultiplier?: number;
     furnitureYOffset?: number;
   },
 ): GeyserItemDefinition {
@@ -433,6 +434,7 @@ export function buildDefinition(
         identifier: identifierName,
         ...(cmdValue !== undefined ? { modelData: cmdValue } : {}),
         vanillaScale: bedrock.furnitureVanillaScale ?? false,
+        scaleMultiplier: bedrock.furnitureScaleMultiplier ?? 0,
         yOffset: bedrock.furnitureYOffset ?? 0,
       });
     }

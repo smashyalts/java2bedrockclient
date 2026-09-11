@@ -3,6 +3,7 @@ import type { VirtualFs } from "../io/vfs.js";
 import type { ConversionReport } from "../report/report.js";
 import type { Timings } from "../report/timings.js";
 import type { RgbaImage } from "../image/png.js";
+import type { FurnitureTransform } from "../java/configShared.js";
 
 export interface ConvertOptions {
   /** Bedrock pack name shown in-game; defaults to Java pack description or zip name. */
@@ -62,7 +63,7 @@ export interface ConvertOptions {
    * NONE) gets no runtime reposition, so the converter seats it by y-offset;
    * `scale` decides whether the extension applies the entity's vanilla scale.
    */
-  furnitureTransforms: Record<string, { none: boolean; scale: number }>;
+  furnitureTransforms: Record<string, FurnitureTransform>;
   /**
    * Max flipbook timeline frames per animated item; 0 = unlimited (full
    * animation, default). Lower values shrink the pack for slow connections.
@@ -224,6 +225,13 @@ export interface ConversionContext {
      * reading the entity transform; the pack bakes nothing.
      */
     vanillaScale?: boolean;
+    /**
+     * `vanilla-scale-multiplier`: the extension multiplies the entity's own
+     * scale by this. Set to the display-transform scale Java applies client-side
+     * and Bedrock can't, divided by the plugin's entity scale — so the product
+     * lands on the Java size. Ignored unless `vanillaScale` is set.
+     */
+    scaleMultiplier?: number;
     /**
      * Per-item y-offset. 0 for furniture the extension repositions live (real
      * display transform); a negative value seats `display_transform: NONE`

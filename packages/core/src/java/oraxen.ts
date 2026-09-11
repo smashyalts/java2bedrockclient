@@ -2,11 +2,14 @@ import { load } from "js-yaml";
 import { readZipDetailed } from "../io/zip.js";
 import type { VirtualFs } from "../io/vfs.js";
 import {
+  displayContextOf,
+  isNoneTransform,
   parseColor,
   parseScaleMagnitude,
   stripFormatting,
   stripNamespace,
   type ConfigHints,
+  type FurnitureTransform,
 } from "./configShared.js";
 import {
   finalizeCraftEngine,
@@ -428,9 +431,7 @@ function extractIsFurniture(item: unknown): boolean {
  * runtime reposition — the converter must seat it by y-offset. scale drives
  * whether the extension should apply the entity's vanilla scale.
  */
-function extractFurnitureTransform(
-  item: unknown,
-): { none: boolean; scale: number } | undefined {
+function extractFurnitureTransform(item: unknown): FurnitureTransform | undefined {
   if (item === null || typeof item !== "object") return undefined;
   const obj = item as Record<string, unknown>;
   for (const sectionKey of ["Mechanics", "mechanics", "behaviours", "behaviors"]) {
@@ -444,9 +445,9 @@ function extractFurnitureTransform(
       unknown
     >;
     const dt = p["display_transform"] ?? p["displayTransform"];
-    const none = typeof dt === "string" && dt.trim().toUpperCase() === "NONE";
+    const context = displayContextOf(dt);
     const scale = parseScaleMagnitude(p["scale"]);
-    return { none, scale };
+    return { none: isNoneTransform(dt), scale, ...(context !== undefined ? { context } : {}) };
   }
   return undefined;
 }

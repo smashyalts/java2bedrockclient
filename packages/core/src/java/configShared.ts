@@ -5,6 +5,25 @@
  * other.
  */
 
+import type { JavaDisplayContext } from "./model.js";
+
+/**
+ * How a plugin places one furniture piece. `context` is the Java display
+ * transform the plugin asks the item_display to render with: NONE leaves it
+ * undefined (identity), anything else names the model `display` entry Java's
+ * client applies on top — a scale/rotation Bedrock has no equivalent for, so
+ * the converter has to reproduce it through the extension mapping. `scale` is
+ * the plugin's own entity scale, which the extension already applies live.
+ */
+export interface FurnitureTransform {
+  /** True when the plugin places with ItemDisplayContext.NONE. */
+  none: boolean;
+  /** The furniture's own scale (Nexo `scale: x,y,z`, CraftEngine element `scale`). */
+  scale: number;
+  /** Model `display` key the plugin's transform maps to; absent for NONE. */
+  context?: JavaDisplayContext;
+}
+
 /**
  * Everything the converter learns from a server's item-plugin configs. Every
  * map is keyed the way the pipeline looks items up: the config key, the
@@ -37,19 +56,38 @@ export interface ConfigHints {
    * GeyserDisplayEntity extension to show on Bedrock.
    */
   furniture: string[];
-  /**
-   * Per-furniture-key placement hints from the plugin's furniture mechanic:
-   * `none` = the item_display uses NONE (identity) transform, so nothing
-   * repositions it at runtime and it must be seated by y-offset; `scale` = the
-   * furniture's own scale (Nexo `scale: x,y,z`, CraftEngine element `scale`),
-   * used to decide `vanilla-scale`. These come from the plugin config, which
-   * overrides the model's own `display.fixed` (Nexo authors set the transform
-   * here, not in the model).
-   */
-  furnitureTransforms: Record<string, { none: boolean; scale: number }>;
+  /** Per-furniture-key placement hints from the plugin's furniture mechanic. */
+  furnitureTransforms: Record<string, FurnitureTransform>;
   /** yml files parsed / items discovered, for reporting. */
   files: number;
   items: number;
+}
+
+/**
+ * Minecraft ItemDisplayContext name (as plugin configs spell it) → the model
+ * `display` key Java's client reads for it. NONE and unknown values map to
+ * nothing: the item renders with no display transform.
+ */
+const DISPLAY_CONTEXTS: Record<string, JavaDisplayContext> = {
+  FIXED: "fixed",
+  HEAD: "head",
+  GUI: "gui",
+  GROUND: "ground",
+  THIRDPERSONLEFTHAND: "thirdperson_lefthand",
+  THIRDPERSONRIGHTHAND: "thirdperson_righthand",
+  FIRSTPERSONLEFTHAND: "firstperson_lefthand",
+  FIRSTPERSONRIGHTHAND: "firstperson_righthand",
+};
+
+/** Model `display` key for a plugin's `display_transform` value, if it has one. */
+export function displayContextOf(raw: unknown): JavaDisplayContext | undefined {
+  if (typeof raw !== "string") return undefined;
+  return DISPLAY_CONTEXTS[raw.trim().toUpperCase().replace(/[_\s-]/g, "")];
+}
+
+/** Whether a plugin's `display_transform` value is the identity (NONE) context. */
+export function isNoneTransform(raw: unknown): boolean {
+  return typeof raw === "string" && raw.trim().toUpperCase() === "NONE";
 }
 
 /** Drop the `namespace:` prefix and lowercase — the form every hint map is keyed by. */

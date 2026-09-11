@@ -335,6 +335,7 @@ function buildDisplayEntityYaml(
     identifier: string;
     modelData?: number;
     vanillaScale?: boolean;
+    scaleMultiplier?: number;
     yOffset?: number;
   }[],
 ): string {
@@ -351,12 +352,20 @@ function buildDisplayEntityYaml(
     "# production furniture packs convert 1:1, so a chair the server places",
     "# stands upright and sits at the right height without per-item tuning.",
     "#",
-    "# vanilla-scale makes the extension apply the entity's own scale — set from",
-    "# the plugin's furniture scale. y-offset is 0 for furniture the extension",
-    "# repositions live; NONE-transform furniture (no runtime transform) gets a",
-    "# negative y-offset so it's seated instead of hanging at the item anchor.",
-    "# The global default y-offset (-0.5) lives in config.yml. If a piece still",
-    "# floats, lower its y-offset here; if it sinks, raise it.",
+    "# The exception is scale. A piece the plugin places with a display",
+    "# transform (FIXED, HEAD) picks up that entry from the model on Java —",
+    "# routinely a 1.7-3x enlargement the model is authored to rely on — and",
+    "# Bedrock has no client-side display transform, so it would render that",
+    "# much too small. vanilla-scale + vanilla-scale-multiplier put it back:",
+    "# the multiplier is the model's display scale divided by the plugin's own",
+    "# entity scale, so the two together land on the Java size. Furniture placed",
+    "# with NONE needs no correction and leaves vanilla-scale off.",
+    "#",
+    "# y-offset is 0 for furniture the extension repositions live; NONE-transform",
+    "# furniture (no runtime transform) gets a negative y-offset so it's seated",
+    "# instead of hanging at the item anchor. The global default y-offset (-0.5)",
+    "# lives in config.yml. If a piece still floats, lower its y-offset here; if",
+    "# it sinks, raise it.",
     "mappings:",
   ];
   for (const e of entries) {
@@ -372,7 +381,7 @@ function buildDisplayEntityYaml(
     lines.push("    displayentityoptions:");
     lines.push(`      y-offset: ${(e.yOffset ?? 0).toFixed(3)}`);
     lines.push(`      vanilla-scale: ${vanilla}`);
-    lines.push(`      vanilla-scale-multiplier: ${vanilla ? 1 : 0}`);
+    lines.push(`      vanilla-scale-multiplier: ${vanilla ? (e.scaleMultiplier ?? 1).toFixed(4) : 0}`);
     lines.push("      hand: false");
   }
   return lines.join("\n") + "\n";

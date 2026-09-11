@@ -293,6 +293,63 @@ items:
     expect(yaml).not.toMatch(/^\s*rotation:/m);
   });
 
+  it("divides the display scale by the plugin's own scale for FIXED furniture", async () => {
+    // A Nexo plushie: the plugin shrinks the entity to 0.5 and asks for FIXED,
+    // so Java's client applies display.fixed's 1.7 on top and it renders at
+    // 0.85. Bedrock only gets the 0.5, so the multiplier has to supply the 1.7.
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/plushie.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/plushie" },
+      }),
+      "assets/nexo/models/item/plushie.json": JSON.stringify({
+        textures: { "1": "nexo:item/plushie" },
+        display: { fixed: { rotation: [-90, 0, 0], scale: [1.7, 1.7, 1.7] } },
+        elements: [
+          { from: [4, 0, 4], to: [12, 12, 12], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
+        ],
+      }),
+      "assets/nexo/textures/item/plushie.png": opaquePng(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Plushie",
+      baseItemHints: { plushie: "minecraft:paper" },
+      furnitureItems: ["plushie"],
+      furnitureTransforms: { plushie: { none: false, scale: 0.5, context: "fixed" } },
+    });
+    const yaml = result.displayEntityMappings!;
+    expect(yaml).toContain("vanilla-scale: true");
+    expect(yaml).toContain("vanilla-scale-multiplier: 3.4000");
+  });
+
+  it("leaves NONE-transform furniture's scale alone", async () => {
+    const packZip = fixtureZip({
+      "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
+      "assets/nexo/items/stool.json": JSON.stringify({
+        model: { type: "minecraft:model", model: "nexo:item/stool" },
+      }),
+      // display.fixed is a red herring here: the plugin places with NONE, so
+      // Java never applies it and Bedrock needs no correction.
+      "assets/nexo/models/item/stool.json": JSON.stringify({
+        textures: { "1": "nexo:item/stool" },
+        display: { fixed: { rotation: [-90, 0, 0], scale: [2, 2, 2] } },
+        elements: [
+          { from: [4, 0, 4], to: [12, 12, 12], faces: { north: { texture: "#1" }, up: { texture: "#1" } } },
+        ],
+      }),
+      "assets/nexo/textures/item/stool.png": opaquePng(),
+    });
+    const result = await convertPack(packZip, {
+      packName: "Stool",
+      baseItemHints: { stool: "minecraft:paper" },
+      furnitureItems: ["stool"],
+      furnitureTransforms: { stool: { none: true, scale: 1 } },
+    });
+    const yaml = result.displayEntityMappings!;
+    expect(yaml).toContain("vanilla-scale: false");
+    expect(yaml).toContain("vanilla-scale-multiplier: 0");
+  });
+
   it("flags vanilla-scale when the furniture's display.fixed scale isn't 1", async () => {
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
@@ -315,7 +372,8 @@ items:
     });
     const yaml = result.displayEntityMappings!;
     expect(yaml).toContain("vanilla-scale: true");
-    expect(yaml).toContain("vanilla-scale-multiplier: 1");
+    // display.fixed scale 2 ÷ plugin scale 1 — the factor Java applies and Bedrock does not.
+    expect(yaml).toContain("vanilla-scale-multiplier: 2.0000");
   });
 
   it("seats NONE-transform furniture by height and reads vanilla-scale from the plugin", async () => {

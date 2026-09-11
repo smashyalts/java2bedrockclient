@@ -10,6 +10,7 @@ import { renderModelIcon } from "../../image/modelRender.js";
 import { defaultUv } from "../../bedrock/geometry.js";
 import { buildDefinition, safeName } from "./itemsStage.js";
 import { parseResourceLocation } from "../../java/javaPack.js";
+import { parseScaleMagnitude, type FurnitureTransform } from "../../java/configShared.js";
 import { frameTicks } from "../../java/mcmeta.js";
 import { fastHash } from "../../util/hash.js";
 import { fitFilePath, fitPathName } from "../../util/packPath.js";
@@ -448,10 +449,30 @@ function convertModel(
   // (authoritative — Nexo sets the transform in its config, not the model's
   // display.fixed), falling back to the model when no plugin hint exists.
   const furnitureTransform = furnitureTransformForGroup(ctx, group);
-  const furnitureVanillaScale =
-    furnitureTransform !== undefined
-      ? furnitureTransform.scale !== 1
-      : (resolved.display?.fixed?.scale?.some((s) => Math.abs(s - 1) > 0.01) ?? false);
+  // Scale: Java's client applies the model's own display transform for whatever
+  // context the plugin places with — a FIXED piece picks up `display.fixed`,
+  // routinely a 1.7–3x enlargement that the model is authored to rely on.
+  // Bedrock has no client-side display transform, so the piece renders at
+  // 1/that of its Java size. The extension's only scale lever multiplies the
+  // entity's own scale (which the rig already applies), so asking for
+  // display ÷ plugin leaves the product at exactly the Java size.
+  // A furniture item whose plugin config named no transform still gets the
+  // correction when its model carries a non-identity `display.fixed`: authoring
+  // one is only worth doing for a piece placed FIXED.
+  const furnitureContext =
+    furnitureTransform?.context ??
+    (furnitureTransform?.none !== true &&
+    (resolved.display?.fixed?.scale?.some((v) => Math.abs(v - 1) > 0.01) ?? false)
+      ? ("fixed" as const)
+      : undefined);
+  const furnitureDisplayScale =
+    furnitureContext !== undefined
+      ? parseScaleMagnitude(resolved.display?.[furnitureContext]?.scale)
+      : 1;
+  const furnitureVanillaScale = Math.abs(furnitureDisplayScale - 1) > 0.001;
+  const furnitureScaleMultiplier = furnitureVanillaScale
+    ? furnitureDisplayScale / (furnitureTransform?.scale ?? 1)
+    : 0;
   const furnitureYOffset =
     furnitureTransform?.none === true && elements.length > 0
       ? furnitureSeatOffset(elements)
@@ -475,6 +496,7 @@ function convertModel(
       icon: iconKey,
       displayHandheld: false,
       furnitureVanillaScale,
+      furnitureScaleMultiplier,
       furnitureYOffset,
     });
     if (headCosmetic) {
@@ -532,7 +554,7 @@ function convertModel(
 function furnitureTransformForGroup(
   ctx: ConversionContext,
   group: PendingGeometry[],
-): { none: boolean; scale: number } | undefined {
+): FurnitureTransform | undefined {
   const transforms = ctx.options.furnitureTransforms;
   for (const { variant } of group) {
     const keys: string[] = [];

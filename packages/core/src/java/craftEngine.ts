@@ -1,10 +1,13 @@
 import {
   asRecord,
+  displayContextOf,
+  isNoneTransform,
   parseColor,
   parseScaleMagnitude,
   stripFormatting,
   stripNamespace,
   type ConfigHints,
+  type FurnitureTransform,
 } from "./configShared.js";
 
 /**
@@ -54,7 +57,7 @@ export interface CraftEngineState {
   /** Item ids referenced by a furniture element, or carrying a furniture_item behaviour. */
   furnitureRefs: Set<string>;
   /** Furniture ref → placement transform read from the display element. */
-  refTransforms: Map<string, { none: boolean; scale: number }>;
+  refTransforms: Map<string, FurnitureTransform>;
   /** Item key → the model aliases registered for it, so refs can flag those too. */
   aliasesByKey: Map<string, string[]>;
 }
@@ -254,9 +257,11 @@ function registerFurniture(
       // placement Bedrock players see most.
       if (state.refTransforms.has(ref)) continue;
       const transform = element!["display_transform"];
+      const context = displayContextOf(transform);
       state.refTransforms.set(ref, {
-        none: typeof transform === "string" && transform.trim().toUpperCase() === "NONE",
+        none: isNoneTransform(transform),
         scale: parseScaleMagnitude(element!["scale"]),
+        ...(context !== undefined ? { context } : {}),
       });
     }
   }
