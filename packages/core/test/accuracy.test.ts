@@ -52,7 +52,7 @@ describe("accuracy improvements", () => {
     // java thirdperson_righthand rotation [75,45,0] → x/y negated on split bones
     expect(tp.bones.geysercmd_x.rotation).toEqual([-75, 0, 0]);
     expect(tp.bones.geysercmd_y.rotation).toEqual([0, -45, 0]);
-    expect(tp.bones.geysercmd_z.scale).toEqual([0.375, 0.375, 0.375]);
+    expect(tp.bones.geysercmd_x.scale).toEqual([0.375, 0.375, 0.375]);
   });
 
   it("bakes rescale into cube coordinates (cross models)", async () => {

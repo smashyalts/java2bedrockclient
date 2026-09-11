@@ -127,10 +127,18 @@ describe("3D custom items", () => {
     const anims = JSON.parse(out.readText("animations/geyser_custom/custom_item_big_sword.animation.json")!);
     const tp = anims.animations["animation.geyser_custom.custom_item_big_sword.thirdperson_main_hand"];
     expect(tp.bones.geysercmd.rotation).toEqual([90, 0, 0]);
-    // base [0,13,-3] + [-tx, ty, tz] = [-1, 15, 0]
-    expect(tp.bones.geysercmd.position).toEqual([-1, 15, 0]);
+    // Bedrock's own hand placement stays on the root; the Java transform hangs
+    // below it so the translation lands in Java's item space, not the hand's.
+    expect(tp.bones.geysercmd.position).toEqual([0, 13, -3]);
+    expect(tp.bones.geysercmd_x.position).toEqual([-1, 2, 3]);
     expect(tp.bones.geysercmd_y.rotation).toEqual([0, -90, 0]);
-    expect(tp.bones.geysercmd_z.scale).toEqual([1.5, 1.5, 1.5]);
+    expect(tp.bones.geysercmd_x.scale).toEqual([1.5, 1.5, 1.5]);
+
+    // Off hand mirrors the transform the way Java's renderer does: +X
+    // translation, flipped Y/Z rotation.
+    const op = anims.animations["animation.geyser_custom.custom_item_big_sword.thirdperson_off_hand"];
+    expect(op.bones.geysercmd_x.position).toEqual([1, 2, 3]);
+    expect(op.bones.geysercmd_y.rotation).toEqual([0, 90, 0]);
 
     const attachable = JSON.parse(out.readText("attachables/geyser_custom/custom_item_big_sword.json")!);
     expect(attachable["minecraft:attachable"].description.identifier).toBe(
