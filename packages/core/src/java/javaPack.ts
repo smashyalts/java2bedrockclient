@@ -25,6 +25,41 @@ export function parseResourceLocation(id: string, defaultNamespace = "minecraft"
  * Handles packs that are nested one directory deep inside the zip
  * (common when people zip the containing folder).
  */
+/**
+ * Directory the pack's own paths hang off inside `vfs` ("" when the archive is
+ * already the pack). Anchored on pack.mcmeta, at the root or one level down.
+ *
+ * An upload with no pack.mcmeta anywhere still has to resolve: a plugin's
+ * working directory — Nexo's `pack/`, shipped as a folder or tarball — keeps
+ * its mcmeta inside the generated zip it sits next to, so the assets tree is
+ * the only marker left. Without this the whole pack stays one level too deep,
+ * every lookup misses, and the run converts nothing while reporting no error.
+ * Only an unambiguous single candidate counts; two sibling asset trees mean
+ * guessing, and guessing wrong hides the real pack.
+ */
+export function findPackRoot(vfs: VirtualFs): string {
+  if (vfs.has("pack.mcmeta")) return "";
+  const metaRoots = new Set<string>();
+  for (const path of vfs.list({ suffix: "pack.mcmeta" })) {
+    const parts = path.split("/");
+    // The list filter is a plain suffix test, so "Backup/oldpack.mcmeta"
+    // reaches here too. Requiring the exact basename stops a stray file naming
+    // a directory as the pack root, which would hide the real assets and emit
+    // an empty pack from a run that looked successful.
+    if (parts.length === 2 && parts[1] === "pack.mcmeta") metaRoots.add(parts[0]! + "/");
+  }
+  if (metaRoots.size === 1) return [...metaRoots][0]!;
+  if (vfs.list({ prefix: "assets/" }).length > 0) return "";
+  const assetRoots = new Set<string>();
+  for (const path of vfs.list()) {
+    const slash = path.indexOf("/");
+    if (slash === -1) continue;
+    const top = path.slice(0, slash + 1);
+    if (path.startsWith(top + "assets/")) assetRoots.add(top);
+  }
+  return assetRoots.size === 1 ? [...assetRoots][0]! : "";
+}
+
 export class JavaPack {
   readonly vfs: VirtualFs;
   /** Prefix inside the zip where the pack root lives ("" or "SomeFolder/"). */
@@ -43,22 +78,7 @@ export class JavaPack {
   }
 
   static open(vfs: VirtualFs): JavaPack {
-    if (vfs.has("pack.mcmeta")) return new JavaPack(vfs, "");
-    // Look for a single-level nested root.
-    const candidates = new Set<string>();
-    for (const path of vfs.list({ suffix: "pack.mcmeta" })) {
-      const parts = path.split("/");
-      // The list filter is a plain suffix test, so "Backup/oldpack.mcmeta"
-      // reaches here too. Requiring the exact basename stops a stray file
-      // naming a directory as the pack root, which would hide the real assets
-      // and emit an empty pack from a run that looked successful.
-      if (parts.length === 2 && parts[1] === "pack.mcmeta") candidates.add(parts[0]! + "/");
-    }
-    if (candidates.size === 1) {
-      return new JavaPack(vfs, [...candidates][0]!);
-    }
-    // Fall back: treat as root even without pack.mcmeta (some packs omit it).
-    return new JavaPack(vfs, "");
+    return new JavaPack(vfs, findPackRoot(vfs));
   }
 
   /** Namespaces present under assets/. */

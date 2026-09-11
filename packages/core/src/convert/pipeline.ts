@@ -117,6 +117,18 @@ export async function convertPack(
     throw new Error(`Nothing to convert: ${why}`);
   }
   const java = JavaPack.open(inputVfs);
+  // An upload with neither an assets tree nor a pack.mcmeta is not a resource
+  // pack — a config zip, or a parent directory picked by mistake. It converts
+  // to nothing, and returning an empty pack for it looks like success and sends
+  // the user off to install it, so name the likely mistake instead. A pack that
+  // declares itself and happens to be empty is still a pack, and passes.
+  if (java.namespaces().length === 0 && inputVfs.list({ suffix: "pack.mcmeta" }).length === 0) {
+    const names = packNames.filter((n) => n !== "").join(", ");
+    throw new Error(
+      `Nothing to convert: ${names !== "" ? `${names} has` : "the upload has"} no assets folder and no pack.mcmeta. ` +
+        `Upload the resource pack itself — the zip or folder that contains assets/ — not a plugin config or a parent directory.`,
+    );
+  }
 
   const opts: ConvertOptions = {
     packName: options?.packName ?? "Converted Pack",

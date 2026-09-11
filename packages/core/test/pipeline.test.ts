@@ -87,6 +87,28 @@ describe("convertPack", () => {
     );
   });
 
+  it("finds the pack root by its assets tree when nothing carries a pack.mcmeta", async () => {
+    // A plugin's working directory (Nexo's `pack/`) keeps its mcmeta inside the
+    // generated zip beside it, so the assets tree is the only marker. Without
+    // this every path stays a level too deep and the run silently converts
+    // nothing.
+    const zip = fixtureZip({
+      "pack/pack.zip": "not a pack we read",
+      "pack/assets/minecraft/textures/item/apple.png": TINY_PNG,
+      "pack/external_packs/other/assets/minecraft/textures/item/pear.png": TINY_PNG,
+    });
+    const result = await convertPack(zip, { packName: "Nested" });
+    const out = readZip(result.mcpack);
+    expect(out.has("textures/items/apple.png")).toBe(true);
+  });
+
+  it("rejects an upload that is neither a pack nor contains one", async () => {
+    const zip = fixtureZip({ "config/items.yml": "sword: { material: PAPER }" });
+    await expect(convertPack(zip, { packName: "x", packNames: ["configs.zip"] })).rejects.toThrow(
+      /no assets folder and no pack\.mcmeta/,
+    );
+  });
+
   it("merges two packs, keeping each one's assets and the first one's contested file", async () => {
     const a = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 34, description: "A" } }),

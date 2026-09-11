@@ -2,6 +2,7 @@ import { VirtualFs } from "../io/vfs.js";
 import { readZipDetailed } from "../io/zip.js";
 import { parseStrictJson } from "./json.js";
 import { asRecord } from "./configShared.js";
+import { findPackRoot } from "./javaPack.js";
 
 /**
  * Merge several Java resource packs into one tree, the way the client would if
@@ -101,7 +102,7 @@ export function mergeJavaPacks(inputs: MergeInput[]): MergeResult {
       for (const entry of read.failed) {
         result.unreadable.push({ pack: input.name, name: entry.name, reason: entry.reason });
       }
-      opened.push({ name: input.name, vfs: read.vfs, root: packRoot(read.vfs) });
+      opened.push({ name: input.name, vfs: read.vfs, root: findPackRoot(read.vfs) });
       result.packs.push({ name: input.name, files: read.vfs.list().length });
     } catch (error) {
       result.failedPacks.push(input.name);
@@ -211,16 +212,6 @@ function recordConflict(
  * {@link JavaPack.open}: "" normally, or "Folder/" when the pack was zipped
  * from its containing directory.
  */
-function packRoot(vfs: VirtualFs): string {
-  if (vfs.has("pack.mcmeta")) return "";
-  const candidates = new Set<string>();
-  for (const path of vfs.list({ suffix: "pack.mcmeta" })) {
-    const parts = path.split("/");
-    if (parts.length === 2 && parts[1] === "pack.mcmeta") candidates.add(parts[0]! + "/");
-  }
-  return candidates.size === 1 ? [...candidates][0]! : "";
-}
-
 /**
  * Files every pack appends to rather than owns. Overwriting one of these drops
  * the other packs' entries entirely — a pack's sounds go silent, its glyphs
