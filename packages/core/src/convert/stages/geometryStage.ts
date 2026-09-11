@@ -453,9 +453,16 @@ function convertModel(
   // context the plugin places with — a FIXED piece picks up `display.fixed`,
   // routinely a 1.7–3x enlargement that the model is authored to rely on.
   // Bedrock has no client-side display transform, so the piece renders at
-  // 1/that of its Java size. The extension's only scale lever multiplies the
-  // entity's own scale (which the rig already applies), so asking for
-  // display ÷ plugin leaves the product at exactly the Java size.
+  // 1/that of its Java size.
+  //
+  // The extension's fix is `vanilla-scale`, which sets the Bedrock entity scale
+  // to the plugin's own scale times `vanilla-scale-multiplier`. That entity
+  // scale is the ONLY scale the attached model gets — the rig animates its own
+  // bone scale from the live entity transform, but a bone's scale does not
+  // reach an attachable bound to it (measured in game: multiplying it in came
+  // out exactly 2x too big for a 0.5-scale piece). So the multiplier is the
+  // display scale on its own, and the extension's product is the Java size.
+  //
   // A furniture item whose plugin config named no transform still gets the
   // correction when its model carries a non-identity `display.fixed`: authoring
   // one is only worth doing for a piece placed FIXED.
@@ -470,9 +477,7 @@ function convertModel(
       ? parseScaleMagnitude(resolved.display?.[furnitureContext]?.scale)
       : 1;
   const furnitureVanillaScale = Math.abs(furnitureDisplayScale - 1) > 0.001;
-  const furnitureScaleMultiplier = furnitureVanillaScale
-    ? furnitureDisplayScale / (furnitureTransform?.scale ?? 1)
-    : 0;
+  const furnitureScaleMultiplier = furnitureVanillaScale ? furnitureDisplayScale : 0;
   const furnitureYOffset =
     furnitureTransform?.none === true && elements.length > 0
       ? furnitureSeatOffset(elements)

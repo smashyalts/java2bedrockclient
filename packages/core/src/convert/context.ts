@@ -226,10 +226,10 @@ export interface ConversionContext {
      */
     vanillaScale?: boolean;
     /**
-     * `vanilla-scale-multiplier`: the extension multiplies the entity's own
-     * scale by this. Set to the display-transform scale Java applies client-side
-     * and Bedrock can't, divided by the plugin's entity scale — so the product
-     * lands on the Java size. Ignored unless `vanillaScale` is set.
+     * `vanilla-scale-multiplier`: the extension sets the Bedrock entity scale to
+     * the plugin's own scale times this. Set to the display-transform scale Java
+     * applies client-side and Bedrock can't, so the product lands on the Java
+     * size. Ignored unless `vanillaScale` is set.
      */
     scaleMultiplier?: number;
     /**

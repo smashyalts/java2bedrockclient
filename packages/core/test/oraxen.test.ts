@@ -293,10 +293,12 @@ items:
     expect(yaml).not.toMatch(/^\s*rotation:/m);
   });
 
-  it("divides the display scale by the plugin's own scale for FIXED furniture", async () => {
+  it("sets the multiplier to the display scale for FIXED furniture", async () => {
     // A Nexo plushie: the plugin shrinks the entity to 0.5 and asks for FIXED,
     // so Java's client applies display.fixed's 1.7 on top and it renders at
-    // 0.85. Bedrock only gets the 0.5, so the multiplier has to supply the 1.7.
+    // 0.85. The extension multiplies the plugin's own 0.5 by the multiplier, so
+    // the multiplier is the 1.7 itself — dividing by the plugin scale here came
+    // out exactly 2x too big in game.
     const packZip = fixtureZip({
       "pack.mcmeta": JSON.stringify({ pack: { pack_format: 46 } }),
       "assets/nexo/items/plushie.json": JSON.stringify({
@@ -319,7 +321,7 @@ items:
     });
     const yaml = result.displayEntityMappings!;
     expect(yaml).toContain("vanilla-scale: true");
-    expect(yaml).toContain("vanilla-scale-multiplier: 3.4000");
+    expect(yaml).toContain("vanilla-scale-multiplier: 1.7000");
   });
 
   it("leaves NONE-transform furniture's scale alone", async () => {
