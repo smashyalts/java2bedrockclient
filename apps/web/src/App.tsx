@@ -39,21 +39,47 @@ export function App() {
    */
   const runId = useRef(0);
 
-  const getWorker = useCallback((): Remote<WorkerApi> => {
-    if (apiRef.current === null) {
+  /**
+   * Rejects if the worker dies. A worker that never starts — its chunk missing,
+   * a parse error, module workers blocked — leaves every comlink call pending
+   * forever, so the screen sat on the first stage with nothing to explain it.
+   * Racing the call against this turns that into an error the user can act on.
+   */
+  const workerFailedRef = useRef<Promise<never> | null>(null);
+
+  const getWorker = useCallback((): { api: Remote<WorkerApi>; failed: Promise<never> } => {
+    if (apiRef.current === null || workerFailedRef.current === null) {
       const worker = new Worker(new URL("./worker/convert.worker.ts", import.meta.url), {
         type: "module",
       });
       workerRef.current = worker;
       apiRef.current = wrap<WorkerApi>(worker);
+      const failed = new Promise<never>((_resolve, reject) => {
+        worker.onerror = (event: ErrorEvent): void => {
+          reject(
+            new Error(
+              `The background converter failed to start${event.message !== "" ? `: ${event.message}` : ""}. ` +
+                `Reload the page and try again — if it keeps happening, your browser may be blocking module workers.`,
+            ),
+          );
+        };
+        worker.onmessageerror = (): void => {
+          reject(new Error("The background converter sent a message this page could not read. Reload and try again."));
+        };
+      });
+      // Only a running conversion awaits this; keep the browser from logging an
+      // unhandled rejection while nothing is.
+      failed.catch(() => {});
+      workerFailedRef.current = failed;
     }
-    return apiRef.current;
+    return { api: apiRef.current, failed: workerFailedRef.current };
   }, []);
 
   const terminateWorker = useCallback(() => {
     workerRef.current?.terminate();
     workerRef.current = null;
     apiRef.current = null;
+    workerFailedRef.current = null;
   }, []);
 
   const startConvert = useCallback(
@@ -81,8 +107,8 @@ export function App() {
           files.map(async (f) => new Uint8Array(await f.arrayBuffer())),
         );
         if (stale()) return;
-        const api = getWorker();
-        const result = await api.convert(
+        const { api, failed } = getWorker();
+        const result = await Promise.race([failed, api.convert(
           transfer(packs, packs.map((p) => p.buffer)),
           {
             packName,
@@ -100,7 +126,7 @@ export function App() {
             return transfer(copy, [copy.buffer]);
           }),
           oxipngLevel,
-        );
+        )]);
         if (stale()) return;
         setPhase({ kind: "done", result, fileName: label, packName });
       } catch (err) {

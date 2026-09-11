@@ -27,8 +27,13 @@ export interface WorkerApi {
 
 const api: WorkerApi = {
   async convert(zipBytes, options, onProgress, configZips, oxipngLevel) {
+    // The page shows "reading files" from the moment it starts reading the drop
+    // until the first stage reports, which hides both the config parse and the
+    // unzip + index of the pack. On a large pack that is a silent window with
+    // no way to tell work from a hang, so name each step as it begins.
     let hintCount: number | undefined;
     if (configZips !== undefined && configZips.length > 0) {
+      onProgress("reading plugin configs", 0, 1);
       // Config zips are optional, so a bad one must not kill the run. The
       // parsers call readZipDetailed with no guard, which throws on a truncated
       // or mis-named archive — previously taking down a conversion whose actual
@@ -71,6 +76,7 @@ const api: WorkerApi = {
     // optimizeStage returns immediately when it is off, and booting eight
     // oxipng wasm workers that are then terminated unused puts wasm init on the
     // critical path of every earlier stage for nothing.
+    onProgress("opening pack", 0, 1);
     const wantsRecompress = options.maxCompression === true && options.optimizePack !== false;
     const pool = wantsRecompress ? createZopfliPool(poolSize(), oxipngLevel ?? 4) : undefined;
     options = { ...options, pngEncoder: encodePool };
